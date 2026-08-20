@@ -1,0 +1,7 @@
+FROM postgres:18-alpine
+
+ENV POSTGRES_USER=gophprofile
+ENV POSTGRES_PASSWORD=secret
+ENV POSTGRES_DB=gophprofile
+
+EXPOSE 5432
