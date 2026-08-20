@@ -7,7 +7,7 @@ import (
 	ch "github.com/KalessinD/gophprofile/internal/common"
 )
 
-const UserIDHeader = "X-User-ID"
+const UserIDHeader = "X-User-Id"
 
 // GetUserID extracts the user ID from the context.
 // If not found, returns an empty string.

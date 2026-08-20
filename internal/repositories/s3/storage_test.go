@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const bucketS3 = "test-bucket"
+
 func TestStorage_UploadObject_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -28,7 +30,7 @@ func TestStorage_UploadObject_Success(t *testing.T) {
 		log:    testLogger,
 	}
 
-	bucketName := "test-bucket"
+	bucketName := bucketS3
 	objectKey := "documents/test-file.txt"
 	content := "test file content"
 	reader := strings.NewReader(content)
@@ -49,7 +51,7 @@ func TestStorage_UploadObject_Success(t *testing.T) {
 	require.NoError(t, err, "UploadObject should not return an error on success")
 }
 
-func TestStorage_UploadObject_PutObjectError(t *testing.T) {
+func TestStorage_GetObject_Error(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -61,27 +63,86 @@ func TestStorage_UploadObject_PutObjectError(t *testing.T) {
 		log:    testLogger,
 	}
 
-	bucketName := "test-bucket"
-	objectKey := "documents/error-file.txt"
-	reader := strings.NewReader("some data")
-	simulatedError := errors.New("s3 network timeout")
+	bucketName := bucketS3
+	objectKey := "documents/missing.txt"
+	simulatedError := errors.New("s3 not found")
 
 	mockClient.EXPECT().
-		PutObject(
+		GetObject(
 			gomock.Any(),
 			bucketName,
 			objectKey,
-			gomock.Any(),
-			int64(-1),
-			minio.PutObjectOptions{},
+			minio.GetObjectOptions{},
 		).
-		Return(minio.UploadInfo{}, simulatedError)
+		Return(nil, simulatedError)
 
-	err := storage.UploadObject(t.Context(), bucketName, objectKey, reader)
+	obj, err := storage.GetObject(t.Context(), bucketName, objectKey)
 
-	require.Error(t, err, "UploadObject should return an error when PutObject fails")
-	assert.ErrorIs(t, err, simulatedError, "Error should wrap the original S3 client error")
-	assert.Contains(t, err.Error(), "failed to upload object to S3", "Error should contain context message")
+	require.Error(t, err, "GetObject should return an error when S3 fails")
+	assert.Nil(t, obj)
+	assert.ErrorIs(t, err, simulatedError)
+	assert.Contains(t, err.Error(), "failed to get object from S3")
+}
+
+func TestStorage_DeleteObject_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockClientInterface(ctrl)
+	testLogger := zap.NewNop()
+
+	storage := &Storage{
+		client: mockClient,
+		log:    testLogger,
+	}
+
+	bucketName := bucketS3
+	objectKey := "documents/to-delete.txt"
+
+	mockClient.EXPECT().
+		RemoveObject(
+			gomock.Any(),
+			bucketName,
+			objectKey,
+			minio.RemoveObjectOptions{},
+		).
+		Return(nil)
+
+	err := storage.DeleteObject(t.Context(), bucketName, objectKey)
+
+	require.NoError(t, err, "DeleteObject should not return an error on success")
+}
+
+func TestStorage_DeleteObject_Error(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockClientInterface(ctrl)
+	testLogger := zap.NewNop()
+
+	storage := &Storage{
+		client: mockClient,
+		log:    testLogger,
+	}
+
+	bucketName := bucketS3
+	objectKey := "documents/error-delete.txt"
+	simulatedError := errors.New("access denied")
+
+	mockClient.EXPECT().
+		RemoveObject(
+			gomock.Any(),
+			bucketName,
+			objectKey,
+			minio.RemoveObjectOptions{},
+		).
+		Return(simulatedError)
+
+	err := storage.DeleteObject(t.Context(), bucketName, objectKey)
+
+	require.Error(t, err, "DeleteObject should return an error when S3 fails")
+	assert.ErrorIs(t, err, simulatedError)
+	assert.Contains(t, err.Error(), "failed to delete object from S3")
 }
 
 func TestNewS3Storage_ConnectionFailed(t *testing.T) {

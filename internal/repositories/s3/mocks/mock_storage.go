@@ -42,19 +42,19 @@ func (m *MockClientInterface) EXPECT() *MockClientInterfaceMockRecorder {
 	return m.recorder
 }
 
-// ListBuckets mocks base method.
-func (m *MockClientInterface) ListBuckets(ctx context.Context) ([]minio.BucketInfo, error) {
+// GetObject mocks base method.
+func (m *MockClientInterface) GetObject(ctx context.Context, bucketName, objectName string, opts minio.GetObjectOptions) (*minio.Object, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListBuckets", ctx)
-	ret0, _ := ret[0].([]minio.BucketInfo)
+	ret := m.ctrl.Call(m, "GetObject", ctx, bucketName, objectName, opts)
+	ret0, _ := ret[0].(*minio.Object)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListBuckets indicates an expected call of ListBuckets.
-func (mr *MockClientInterfaceMockRecorder) ListBuckets(ctx any) *gomock.Call {
+// GetObject indicates an expected call of GetObject.
+func (mr *MockClientInterfaceMockRecorder) GetObject(ctx, bucketName, objectName, opts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBuckets", reflect.TypeOf((*MockClientInterface)(nil).ListBuckets), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetObject", reflect.TypeOf((*MockClientInterface)(nil).GetObject), ctx, bucketName, objectName, opts)
 }
 
 // PutObject mocks base method.
@@ -70,4 +70,18 @@ func (m *MockClientInterface) PutObject(ctx context.Context, bucketName, objectN
 func (mr *MockClientInterfaceMockRecorder) PutObject(ctx, bucketName, objectName, reader, size, opts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutObject", reflect.TypeOf((*MockClientInterface)(nil).PutObject), ctx, bucketName, objectName, reader, size, opts)
+}
+
+// RemoveObject mocks base method.
+func (m *MockClientInterface) RemoveObject(ctx context.Context, bucketName, objectName string, opts minio.RemoveObjectOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveObject", ctx, bucketName, objectName, opts)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveObject indicates an expected call of RemoveObject.
+func (mr *MockClientInterfaceMockRecorder) RemoveObject(ctx, bucketName, objectName, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveObject", reflect.TypeOf((*MockClientInterface)(nil).RemoveObject), ctx, bucketName, objectName, opts)
 }

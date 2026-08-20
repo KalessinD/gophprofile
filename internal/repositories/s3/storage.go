@@ -20,10 +20,10 @@ type (
 	}
 
 	// ClientInterface defines the methods of the S3 client that we need to mock in tests.
-	// It wraps only the specific methods used by our adapter, preventing over-mocking.
 	ClientInterface interface {
-		ListBuckets(ctx context.Context) ([]minio.BucketInfo, error)
-		PutObject(ctx context.Context, bucketName string, objectName string, reader io.Reader, size int64, opts minio.PutObjectOptions) (info minio.UploadInfo, err error)
+		PutObject(ctx context.Context, bucketName string, objectName string, reader io.Reader, size int64, opts minio.PutObjectOptions) (minio.UploadInfo, error)
+		GetObject(ctx context.Context, bucketName string, objectName string, opts minio.GetObjectOptions) (*minio.Object, error)
+		RemoveObject(ctx context.Context, bucketName string, objectName string, opts minio.RemoveObjectOptions) error
 	}
 )
 
@@ -60,10 +60,27 @@ func (s *Storage) UploadObject(ctx context.Context, bucket string, objectKey str
 		return fmt.Errorf("failed to upload object to S3: %w", err)
 	}
 
-	s.log.Info("Successfully uploaded object",
-		zap.String("bucket", bucket),
-		zap.String("key", objectKey),
-	)
+	s.log.Info("Successfully uploaded object", zap.String("bucket", bucket), zap.String("key", objectKey))
 
+	return nil
+}
+
+// GetObject retrieves an object from S3.
+func (s *Storage) GetObject(ctx context.Context, bucket string, objectKey string) (*minio.Object, error) {
+	obj, err := s.client.GetObject(ctx, bucket, objectKey, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get object from S3: %w", err)
+	}
+	return obj, nil
+}
+
+// DeleteObject removes an object from S3.
+func (s *Storage) DeleteObject(ctx context.Context, bucket string, objectKey string) error {
+	err := s.client.RemoveObject(ctx, bucket, objectKey, minio.RemoveObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete object from S3: %w", err)
+	}
+
+	s.log.Info("Successfully deleted object", zap.String("bucket", bucket), zap.String("key", objectKey))
 	return nil
 }

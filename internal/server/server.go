@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/KalessinD/gophprofile/internal/config"
+	"github.com/KalessinD/gophprofile/internal/handlers"
 	mw "github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
@@ -93,6 +94,23 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 	// Custom middlewares
 	router.Use(mw.UserIDMiddleware)
 
+	avatarHandler := handlers.NewAvatarHandler(nil)
+
+	// API V1 Роуты
+	router.Route("/api/v1", func(r chi.Router) {
+		// Avatar routes
+		r.Post("/avatars", avatarHandler.UploadAvatar)
+		r.Get("/avatars/{avatar_id}", avatarHandler.GetAvatar)
+		r.Get("/avatars/{avatar_id}/metadata", avatarHandler.GetAvatarMetadata)
+		r.Delete("/avatars/{avatar_id}", avatarHandler.DeleteAvatar)
+
+		// User specific routes
+		r.Get("/users/{user_id}/avatar", avatarHandler.GetUserAvatar)
+		r.Delete("/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
+		r.Get("/users/{user_id}/avatars", avatarHandler.GetUserAvatars)
+	})
+
+	// System routes
 	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -101,7 +119,7 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 	return router
 }
 
-func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, pgdb *sql.DB) (http.Handler, error) {
+func NewRouter(_ context.Context, cfg *config.ServerConfig, log *zap.Logger, _ *sql.DB) (http.Handler, error) {
 	router := GetBaseRouter(cfg, log)
 
 	return router, nil
