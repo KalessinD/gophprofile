@@ -12,6 +12,8 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
+
+	"github.com/go-chi/cors"
 )
 
 var (
@@ -72,10 +74,24 @@ func PsqlConnect(ctx context.Context, dsn string, log *zap.Logger) (*sql.DB, err
 func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 	router := chi.NewRouter()
 
+	// Standard middlewares
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 	router.Use(mw.Logger(log))
 	router.Use(middleware.Timeout(cfg.ProcessingTimeout))
+
+	// CORS middleware (разрешаем запросы с фронтенда)
+	router.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"}, // На проде нужно будет ограничить домен
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Content-Type", "X-User-ID"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
+
+	// Custom middlewares
+	router.Use(mw.UserIDMiddleware)
 
 	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
