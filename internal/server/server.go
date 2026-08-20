@@ -80,10 +80,11 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 	router.Use(middleware.Recoverer)
 	router.Use(mw.Logger(log))
 	router.Use(middleware.Timeout(cfg.ProcessingTimeout))
+	router.Use(mw.UserIDMiddleware)
 
-	// CORS middleware (разрешаем запросы с фронтенда)
+	// CORS middleware
 	router.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"}, // На проде нужно будет ограничить домен
+		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Content-Type", "X-User-ID"},
 		ExposedHeaders:   []string{"Link"},
@@ -91,23 +92,20 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 		MaxAge:           300,
 	}))
 
-	// Custom middlewares
-	router.Use(mw.UserIDMiddleware)
-
-	avatarHandler := handlers.NewAvatarHandler(nil)
+	avatarService := handlers.NewAvatarHandler(nil)
 
 	// API V1 Роуты
 	router.Route("/api/v1", func(r chi.Router) {
 		// Avatar routes
-		r.Post("/avatars", avatarHandler.UploadAvatar)
-		r.Get("/avatars/{avatar_id}", avatarHandler.GetAvatar)
-		r.Get("/avatars/{avatar_id}/metadata", avatarHandler.GetAvatarMetadata)
-		r.Delete("/avatars/{avatar_id}", avatarHandler.DeleteAvatar)
+		r.Post("/avatars", avatarService.UploadAvatar)
+		r.Get("/avatars/{avatar_id}", avatarService.GetAvatar)
+		r.Get("/avatars/{avatar_id}/metadata", avatarService.GetAvatarMetadata)
+		r.Delete("/avatars/{avatar_id}", avatarService.DeleteAvatar)
 
 		// User specific routes
-		r.Get("/users/{user_id}/avatar", avatarHandler.GetUserAvatar)
-		r.Delete("/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
-		r.Get("/users/{user_id}/avatars", avatarHandler.GetUserAvatars)
+		r.Get("/users/{user_id}/avatar", avatarService.GetUserAvatar)
+		r.Delete("/users/{user_id}/avatar", avatarService.DeleteUserAvatar)
+		r.Get("/users/{user_id}/avatars", avatarService.GetUserAvatars)
 	})
 
 	// System routes
