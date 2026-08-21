@@ -111,21 +111,21 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 	}
 
 	avatarRepo := postgres.NewSQLStorage(pgdb)
-	avatraService := services.NewAvatarService(avatarRepo, fileStorage, nil, cfg.S3Bucket)
-	avatarHandle := handlers.NewAvatarHandler(avatraService)
+	avatarService := services.NewAvatarService(avatarRepo, fileStorage, nil, cfg.S3Bucket)
+	avatarHandler := handlers.NewAvatarHandler(avatarService)
 
 	// API V1 Роуты
 	router.Route("/api/v1", func(r chi.Router) {
 		// Avatar routes
-		r.Post("/avatars", avatarHandle.UploadAvatar)
-		r.Get("/avatars/{avatar_id}", avatarHandle.GetAvatar)
-		r.Get("/avatars/{avatar_id}/metadata", avatarHandle.GetAvatarMetadata)
-		r.Delete("/avatars/{avatar_id}", avatarHandle.DeleteAvatar)
+		r.Post("/avatars", avatarHandler.UploadAvatar)
+		r.Get("/avatars/{avatar_id}", avatarHandler.GetAvatar)
+		r.Get("/avatars/{avatar_id}/metadata", avatarHandler.GetAvatarMetadata)
+		r.Delete("/avatars/{avatar_id}", avatarHandler.DeleteAvatar)
 
 		// User specific routes
-		r.Get("/users/{user_id}/avatar", avatarHandle.GetUserAvatar)
-		r.Delete("/users/{user_id}/avatar", avatarHandle.DeleteUserAvatar)
-		r.Get("/users/{user_id}/avatars", avatarHandle.GetUserAvatars)
+		r.Get("/users/{user_id}/avatar", avatarHandler.GetUserAvatar)
+		r.Delete("/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
+		r.Get("/users/{user_id}/avatars", avatarHandler.GetUserAvatars)
 	})
 
 	// System routes
