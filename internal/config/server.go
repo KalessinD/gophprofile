@@ -12,7 +12,6 @@ import (
 
 const (
 	DefaultListenAddr               string        = ":8080"
-	DefaultS3ListenAddr             string        = ":9000"
 	DefaultProcessingTimeout        time.Duration = 60 * time.Second
 	DefaultReadTimeout              time.Duration = 5 * time.Second
 	DefaultReadHeaderTimeout        time.Duration = 5 * time.Second
@@ -22,12 +21,6 @@ const (
 	DefaultPsqlDSN                  string        = ""
 	DefaultCompressionThreshold     int           = 1024
 	DefaultApplyMigrations          bool          = false
-	DefaultS3UseSSL                 bool          = false
-	DefaultS3AccessKey              string        = ""
-	DefaultS3Secretkey              string        = ""
-	DefaultS3Bucket                 string        = "gophprofile"
-	DefaultKafkaBrokers             string        = ""
-	DefaultKafkaTopic               string        = "avatar-processing"
 )
 
 type (
@@ -53,7 +46,6 @@ type (
 	// Server configuration struct
 	ServerConfig struct {
 		ListenAddr               string
-		S3ListenAddr             string
 		ProcessingTimeout        time.Duration
 		ReadTimeout              time.Duration
 		ReadHeaderTimeout        time.Duration
@@ -63,13 +55,9 @@ type (
 		PsqlDSN                  string
 		TLSConfig                *TLSConfig
 		CompressionThreshold     int
-		S3UseSSL                 bool
-		S3AccessKey              string
-		S3SecretKey              string
-		S3Bucket                 string
 		ApplyMigrations          bool
-		KafkaBrokers             string
-		KafkaTopic               string
+		S3                       *S3
+		Kafka                    *Kafka
 	}
 
 	// ServerConfigurator is an interface to be implemented by server configuration object
@@ -91,7 +79,6 @@ type (
 func GetDefaultServerConfig() *ServerConfig {
 	return &ServerConfig{
 		ListenAddr:               DefaultListenAddr,
-		S3ListenAddr:             DefaultS3ListenAddr,
 		ProcessingTimeout:        DefaultProcessingTimeout,
 		ReadTimeout:              DefaultReadTimeout,
 		ReadHeaderTimeout:        DefaultReadHeaderTimeout,
@@ -101,12 +88,8 @@ func GetDefaultServerConfig() *ServerConfig {
 		PsqlDSN:                  DefaultPsqlDSN,
 		CompressionThreshold:     DefaultCompressionThreshold,
 		ApplyMigrations:          DefaultApplyMigrations,
-		S3UseSSL:                 DefaultS3UseSSL,
-		S3AccessKey:              DefaultS3AccessKey,
-		S3SecretKey:              DefaultS3Secretkey,
-		S3Bucket:                 DefaultS3Bucket,
-		KafkaBrokers:             DefaultKafkaBrokers,
-		KafkaTopic:               DefaultKafkaTopic,
+		S3:                       getDefaultS3(),
+		Kafka:                    getDefaultKafka(),
 	}
 }
 
@@ -115,8 +98,8 @@ func (c *ServerConfig) Validate() error {
 	if err := ValidateAddr(c.ListenAddr); err != nil {
 		return err
 	}
-	if c.S3ListenAddr != "" {
-		if err := ValidateAddr(c.S3ListenAddr); err != nil {
+	if c.S3.ListenAddr != "" {
+		if err := ValidateAddr(c.S3.ListenAddr); err != nil {
 			return err
 		}
 	}
@@ -134,13 +117,13 @@ func (c *ServerConfig) Validate() error {
 func (c *ServerConfig) UpdateFromEnvironment() error {
 	c.ListenAddr = GetEnvOrFallback("ADDRESS", c.ListenAddr)
 	c.PsqlDSN = GetEnvOrFallback("DATABASE_DSN", c.PsqlDSN)
-	c.S3ListenAddr = GetEnvOrFallback("S3_ENDPOINT", c.S3ListenAddr)
-	c.S3UseSSL = GetEnvOrFallback("S3_USE_SSL", c.S3UseSSL)
-	c.S3AccessKey = GetEnvOrFallback("S3_ACCESS_KEY", c.S3AccessKey)
-	c.S3SecretKey = GetEnvOrFallback("S3_SECRET_KEY", c.S3SecretKey)
-	c.S3Bucket = GetEnvOrFallback("S3_BUCKET", c.S3Bucket)
-	c.KafkaBrokers = GetEnvOrFallback("KAFKA_BROKERS", c.KafkaBrokers)
-	c.KafkaTopic = GetEnvOrFallback("KAFKA_TOPIC", c.KafkaTopic)
+	c.S3.ListenAddr = GetEnvOrFallback("S3_ENDPOINT", c.S3.ListenAddr)
+	c.S3.UseSSL = GetEnvOrFallback("S3_USE_SSL", c.S3.UseSSL)
+	c.S3.AccessKey = GetEnvOrFallback("S3_ACCESS_KEY", c.S3.AccessKey)
+	c.S3.SecretKey = GetEnvOrFallback("S3_SECRET_KEY", c.S3.SecretKey)
+	c.S3.Bucket = GetEnvOrFallback("S3_BUCKET", c.S3.Bucket)
+	c.Kafka.Brokers = GetEnvOrFallback("KAFKA_BROKERS", c.Kafka.Brokers)
+	c.Kafka.Topic = GetEnvOrFallback("KAFKA_TOPIC", c.Kafka.Topic)
 	c.ApplyMigrations = GetEnvOrFallback("APPLY_DB_MIGRATIONS", c.ApplyMigrations)
 
 	tlsCertFile := GetEnvOrFallback("TLS_CERT_FILE", "")
@@ -158,16 +141,16 @@ func (c *ServerConfig) UpdateFromEnvironment() error {
 // UpdateFromCLIArgs updates settings from CLI arguments
 func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) error {
 	flagSet.BoolVar(&c.ApplyMigrations, "apply-db-migrations", c.ApplyMigrations, "applies database migrations on server start")
-	flagSet.BoolVar(&c.S3UseSSL, "s3-use-ssl", c.S3UseSSL, "turns on usage of SSL for S3 connections")
+	flagSet.BoolVar(&c.S3.UseSSL, "s3-use-ssl", c.S3.UseSSL, "turns on usage of SSL for S3 connections")
 
 	flagSet.StringVar(&c.PsqlDSN, "d", c.PsqlDSN, "SQL database DSN string")
 	flagSet.StringVar(&c.ListenAddr, "a", c.ListenAddr, "server listen address via HTTP")
-	flagSet.StringVar(&c.S3ListenAddr, "g", c.S3ListenAddr, "S3 listen address")
-	flagSet.StringVar(&c.S3AccessKey, "s3-access-key", c.S3AccessKey, "S3 access key")
-	flagSet.StringVar(&c.S3SecretKey, "s3-secret-key", c.S3SecretKey, "S3 secret key")
-	flagSet.StringVar(&c.S3Bucket, "s3-bucket", c.S3Bucket, "S3 bucket")
-	flagSet.StringVar(&c.KafkaBrokers, "kafka-brokers", c.KafkaBrokers, "Kafka broker addresses (comma separated)")
-	flagSet.StringVar(&c.KafkaTopic, "kafka-topic", c.KafkaTopic, "Kafka topic for avatar processing")
+	flagSet.StringVar(&c.S3.ListenAddr, "g", c.S3.ListenAddr, "S3 listen address")
+	flagSet.StringVar(&c.S3.AccessKey, "s3-access-key", c.S3.AccessKey, "S3 access key")
+	flagSet.StringVar(&c.S3.SecretKey, "s3-secret-key", c.S3.SecretKey, "S3 secret key")
+	flagSet.StringVar(&c.S3.Bucket, "s3-bucket", c.S3.Bucket, "S3 bucket")
+	flagSet.StringVar(&c.Kafka.Brokers, "kafka-brokers", c.Kafka.Brokers, "Kafka broker addresses (comma separated)")
+	flagSet.StringVar(&c.Kafka.Topic, "kafka-topic", c.Kafka.Topic, "Kafka topic for avatar processing")
 
 	// Using temporary variables to prevent nil pointer dereference if TLSConfig is nil
 	var tlsCertFile string
@@ -226,31 +209,31 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 	}
 
 	if jsonCfg.S3Address != "" {
-		c.S3ListenAddr = jsonCfg.S3Address
+		c.S3.ListenAddr = jsonCfg.S3Address
 	}
 
 	if jsonCfg.S3AccessKey != "" {
-		c.S3AccessKey = jsonCfg.S3AccessKey
+		c.S3.AccessKey = jsonCfg.S3AccessKey
 	}
 
 	if jsonCfg.S3Secretkey != "" {
-		c.S3SecretKey = jsonCfg.S3Secretkey
+		c.S3.SecretKey = jsonCfg.S3Secretkey
 	}
 
 	if jsonCfg.S3Bucket != "" {
-		c.S3Bucket = jsonCfg.S3Bucket
+		c.S3.Bucket = jsonCfg.S3Bucket
 	}
 
-	if jsonCfg.S3UseSSL != c.S3UseSSL {
-		c.S3UseSSL = jsonCfg.S3UseSSL
+	if jsonCfg.S3UseSSL != c.S3.UseSSL {
+		c.S3.UseSSL = jsonCfg.S3UseSSL
 	}
 
 	if jsonCfg.KafkaBrokers != "" {
-		c.KafkaBrokers = jsonCfg.KafkaBrokers
+		c.Kafka.Brokers = jsonCfg.KafkaBrokers
 	}
 
 	if jsonCfg.KafkaTopic != "" {
-		c.KafkaTopic = jsonCfg.KafkaTopic
+		c.Kafka.Topic = jsonCfg.KafkaTopic
 	}
 
 	if jsonCfg.TLS != nil {

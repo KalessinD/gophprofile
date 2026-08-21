@@ -102,8 +102,8 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 	router := GetBaseRouter(cfg, log)
 
 	var fileStorage services.ObjectStorage
-	if cfg.S3ListenAddr != "" {
-		s3Client, err := s3.NewS3Storage(ctx, cfg, log)
+	if cfg.S3.ListenAddr != "" {
+		s3Client, err := s3.NewS3Storage(ctx, cfg.S3, log)
 		if err != nil {
 			return nil, fmt.Errorf("initializing s3 storage: %w", err)
 		}
@@ -111,7 +111,7 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 	}
 
 	avatarRepo := postgres.NewSQLStorage(pgdb)
-	avatarService := services.NewAvatarService(avatarRepo, fileStorage, nil, cfg.S3Bucket)
+	avatarService := services.NewAvatarService(avatarRepo, fileStorage, nil, cfg.S3.Bucket)
 	avatarHandler := handlers.NewAvatarHandler(avatarService)
 
 	// API V1 Роуты

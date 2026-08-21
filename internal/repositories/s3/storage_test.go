@@ -149,11 +149,11 @@ func TestNewS3Storage_ConnectionFailed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
-	cfg := &config.ServerConfig{
-		S3ListenAddr: "localhost:1", // bad address
-		S3AccessKey:  "access",
-		S3SecretKey:  "secret",
-		S3UseSSL:     false,
+	cfg := &config.S3{
+		ListenAddr: "localhost:1", // bad address
+		AccessKey:  "access",
+		SecretKey:  "secret",
+		UseSSL:     false,
 	}
 
 	storage, err := NewS3Storage(ctx, cfg, zap.NewNop())

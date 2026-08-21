@@ -28,21 +28,21 @@ type (
 )
 
 // NewS3Storage initializes a new MinIO client and checks connection.
-func NewS3Storage(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger) (*Storage, error) {
-	client, err := minio.New(cfg.S3ListenAddr, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
-		Secure: cfg.S3UseSSL,
+func NewS3Storage(ctx context.Context, cfg *config.S3, log *zap.Logger) (*Storage, error) {
+	client, err := minio.New(cfg.ListenAddr, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure: cfg.UseSSL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize S3 client: %w", err)
 	}
 
-	exists, err := client.BucketExists(ctx, cfg.S3Bucket)
+	exists, err := client.BucketExists(ctx, cfg.Bucket)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check S3 bucket: %w", err)
 	}
 	if !exists {
-		return nil, fmt.Errorf("required S3 bucket '%s' does not exist", cfg.S3Bucket)
+		return nil, fmt.Errorf("required S3 bucket '%s' does not exist", cfg.Bucket)
 	}
 
 	log.Debug("S3 storage initialized successfully")
