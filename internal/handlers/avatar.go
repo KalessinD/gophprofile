@@ -75,7 +75,6 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	err = h.service.CreateAvatar(r.Context(), &models.Avatar{
 		UserID: userID,
 	})
-
 	if err != nil {
 		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return

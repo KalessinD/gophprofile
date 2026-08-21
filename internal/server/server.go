@@ -10,6 +10,7 @@ import (
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/handlers"
 	mw "github.com/KalessinD/gophprofile/internal/middleware"
+	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3"
 	"github.com/KalessinD/gophprofile/internal/services"
 	"github.com/go-chi/chi/middleware"
@@ -109,7 +110,8 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 		fileStorage = s3Client
 	}
 
-	avatraService := services.NewAvatarService(nil, fileStorage, nil, cfg.S3Bucket)
+	avatarRepo := postgres.NewSQLStorage(pgdb)
+	avatraService := services.NewAvatarService(avatarRepo, fileStorage, nil, cfg.S3Bucket)
 	avatarHandle := handlers.NewAvatarHandler(avatraService)
 
 	// API V1 Роуты

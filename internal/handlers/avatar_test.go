@@ -1,0 +1,265 @@
+package handlers_test
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/KalessinD/gophprofile/internal/handlers"
+	"github.com/KalessinD/gophprofile/internal/middleware"
+	"github.com/KalessinD/gophprofile/internal/models"
+	"github.com/KalessinD/gophprofile/internal/services"
+	"github.com/KalessinD/gophprofile/internal/services/mocks"
+	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+)
+
+const (
+	testBucket = "test-bucket"
+	testUserID = "user-123"
+)
+
+// setupTestEnv is a helper to initialize mocks, service, and handler.
+// nolint: unparam
+func setupTestEnv(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepository, *mocks.MockObjectStorage, *mocks.MockAvatarProducer, *handlers.AvatarHandler) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+
+	repoMock := mocks.NewMockAvatarRepository(ctrl)
+	s3Mock := mocks.NewMockObjectStorage(ctrl)
+	prodMock := mocks.NewMockAvatarProducer(ctrl)
+
+	svc := services.NewAvatarService(repoMock, s3Mock, prodMock, testBucket)
+	h := handlers.NewAvatarHandler(svc)
+
+	return ctrl, repoMock, s3Mock, prodMock, h
+}
+
+// addUserToContext injects the X-User-ID into the request context, mimicking the middleware.
+// nolint: unparam
+func addUserToContext(req *http.Request, userID string) *http.Request {
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+	return req.WithContext(ctx)
+}
+
+// addChiURLParams injects URL parameters into the request context, mimicking the Chi router.
+func addChiURLParams(req *http.Request, params map[string]string) *http.Request {
+	routeCtx := chi.NewRouteContext()
+	for key, value := range params {
+		routeCtx.URLParams.Add(key, value)
+	}
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+}
+
+// newMultipartRequest is a helper to create a valid multipart upload request.
+func newMultipartRequest(t *testing.T, fileName string, content string) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", fileName)
+	require.NoError(t, err)
+	_, err = part.Write([]byte(content))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/avatars", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	return req
+}
+
+func TestUploadAvatar_Success(t *testing.T) {
+	ctrl, _, _, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	// TODO: When CreateAvatar is implemented, add repoMock and s3Mock expectations here.
+	// Currently it just hits the 501 Not Implemented logic because service.CreateAvatar is a TODO.
+
+	req := newMultipartRequest(t, "image.jpg", "fake-data")
+	req = addUserToContext(req, testUserID)
+
+	rec := httptest.NewRecorder()
+	h.UploadAvatar(rec, req)
+
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+}
+
+func TestUploadAvatar_MissingFile(t *testing.T) {
+	ctrl, _, _, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/avatars", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/json") // Wrong content type, no multipart boundary
+	req = addUserToContext(req, testUserID)
+
+	rec := httptest.NewRecorder()
+	h.UploadAvatar(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "missing file in request")
+}
+
+func TestUploadAvatar_InvalidFormat(t *testing.T) {
+	ctrl, _, _, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	req := newMultipartRequest(t, "document.pdf", "fake-data")
+	req = addUserToContext(req, testUserID)
+
+	rec := httptest.NewRecorder()
+	h.UploadAvatar(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "invalid image format")
+}
+
+func TestGetAvatar_Success(t *testing.T) {
+	ctrl, repoMock, s3Mock, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	avatarID := "av-1"
+	fakeImage := io.NopCloser(strings.NewReader("image-bytes"))
+	expectedAvatar := &models.Avatar{
+		ID:            avatarID,
+		OriginalS3Key: "orig.jpg",
+		MimeType:      "image/jpeg",
+	}
+
+	repoMock.EXPECT().
+		GetAvatarByID(gomock.Any(), avatarID).
+		Return(expectedAvatar, nil)
+
+	s3Mock.EXPECT().
+		GetObject(gomock.Any(), testBucket, "orig.jpg").
+		Return(fakeImage, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+avatarID, nil)
+	req = addUserToContext(req, testUserID)
+	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
+
+	rec := httptest.NewRecorder()
+	h.GetAvatar(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "image/jpeg", rec.Header().Get("Content-Type"))
+	assert.Equal(t, `"`+avatarID+`"`, rec.Header().Get("ETag"))
+	assert.Equal(t, "max-age=86400", rec.Header().Get("Cache-Control"))
+}
+
+func TestGetAvatar_NotFound(t *testing.T) {
+	ctrl, repoMock, _, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	avatarID := "not-found"
+
+	repoMock.EXPECT().
+		GetAvatarByID(gomock.Any(), avatarID).
+		Return(nil, models.ErrAvatarNotFound)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+avatarID, nil)
+	req = addUserToContext(req, testUserID)
+	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
+
+	rec := httptest.NewRecorder()
+	h.GetAvatar(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "avatar not found")
+}
+
+func TestGetAvatar_ThumbnailNotReady(t *testing.T) {
+	ctrl, repoMock, _, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	avatarID := "av-2"
+	expectedAvatar := &models.Avatar{
+		ID:                avatarID,
+		Thumbnail100S3Key: nil, // Thumbnail not generated yet
+	}
+
+	repoMock.EXPECT().
+		GetAvatarByID(gomock.Any(), avatarID).
+		Return(expectedAvatar, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+avatarID+"?size=100x100", nil)
+	req = addUserToContext(req, testUserID)
+	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
+
+	rec := httptest.NewRecorder()
+	h.GetAvatar(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "not ready yet")
+}
+
+func TestDeleteAvatar_Success(t *testing.T) {
+	ctrl, repoMock, _, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	avatarID := "av-3"
+
+	// SoftDeleteAvatar in service calls GetAvatarByID first to check ownership
+	repoMock.EXPECT().
+		GetAvatarByID(gomock.Any(), avatarID).
+		Return(&models.Avatar{ID: avatarID, UserID: testUserID}, nil)
+
+	repoMock.EXPECT().
+		SoftDeleteAvatar(gomock.Any(), avatarID).
+		Return(nil)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/avatars/"+avatarID, nil)
+	req = addUserToContext(req, testUserID)
+	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
+
+	rec := httptest.NewRecorder()
+	h.DeleteAvatar(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestDeleteAvatar_Forbidden(t *testing.T) {
+	ctrl, repoMock, _, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	avatarID := "av-4"
+	ownerID := "user-999" // Different from testUserID
+
+	repoMock.EXPECT().
+		GetAvatarByID(gomock.Any(), avatarID).
+		Return(&models.Avatar{ID: avatarID, UserID: ownerID}, nil)
+
+	// SoftDeleteAvatar should NOT be called
+	repoMock.EXPECT().SoftDeleteAvatar(gomock.Any(), gomock.Any()).Times(0)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/avatars/"+avatarID, nil)
+	req = addUserToContext(req, testUserID)
+	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
+
+	rec := httptest.NewRecorder()
+	h.DeleteAvatar(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "you can only delete your own avatars")
+}
+
+// Skipped tests: The following handlers depend on service methods that are still "TODO: implement".
+// They currently return nil, which breaks the handler flow (e.g., len(nil) == 0 triggers 404).
+// These tests will be unskipped in Step 2 when the service layer is fully implemented.
+
+func TestGetUserAvatar_Success(t *testing.T) {
+	t.Skip("Skipping until service.GetAvatarsByUserID is implemented")
+}
+
+func TestGetUserAvatar_NotFound(t *testing.T) {
+	t.Skip("Skipping until service.GetAvatarsByUserID is implemented")
+}
+
+func TestGetUserAvatars_Success(t *testing.T) {
+	t.Skip("Skipping until service.GetAvatarsByUserID is implemented")
+}
