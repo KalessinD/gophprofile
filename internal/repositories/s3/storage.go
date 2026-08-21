@@ -66,7 +66,7 @@ func (s *Storage) UploadObject(ctx context.Context, bucket string, objectKey str
 }
 
 // GetObject retrieves an object from S3.
-func (s *Storage) GetObject(ctx context.Context, bucket string, objectKey string) (*minio.Object, error) {
+func (s *Storage) GetObject(ctx context.Context, bucket string, objectKey string) (io.ReadCloser, error) {
 	obj, err := s.client.GetObject(ctx, bucket, objectKey, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object from S3: %w", err)

@@ -11,6 +11,10 @@ const (
 	AvatarStatusError      = "error"
 
 	MaxAvatarFileSizeBytes = 10 * 1024 * 1024 // 10 MB
+
+	SizeOriginal = "original"
+	Size100x100  = "100x100"
+	Size300x300  = "300x300"
 )
 
 var (

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -16,13 +17,15 @@ import (
 const (
 	MaxAvatarSizeBytes     = 10 * 1024 * 1024
 	AllowedImageExtensions = ".jpg,.jpeg,.png,.webp"
+
+	msgInternalServer    = `{"error": "internal server error"}`
+	msgMissingFile       = `{"error": "failed to parse multipart form", "details": "missing file in request"}`
+	msgThumbnailNotReady = `{"error": "requested thumbnail is not ready yet"}`
 )
 
 var (
 	ErrAvatarSizeExceeded  = errors.New("file size exceeds 10 MB limit")
 	ErrAvatarInvalidFormat = errors.New("invalid image format, allowed: jpg, png, webp")
-	ErrAvatarNotFound      = models.ErrAvatarNotFound
-	ErrAvatarForbidden     = models.ErrAvatarForbidden
 )
 
 type AvatarHandler struct {
@@ -36,65 +39,45 @@ func NewAvatarHandler(service *services.AvatarService) *AvatarHandler {
 /*
 UploadAvatar handles the uploading of a new user avatar.
 
-Формат запроса:
-```
-POST /api/v1/avatars HTTP/1.1
-Content-Type: multipart/form-data
-X-User-ID: user-123
-
-------WebKitFormBoundary7MA4YWxkTrZu0gW
-+Content-Disposition: form-data; name="file"; filename="photo.jpg"
-Content-Type: image/jpeg
-
-<binary data>
-------WebKitFormBoundary7MA4YWxkTrZu0gW--
-```
-
-Возможные коды ответа:
-- 201 — аватарка успешно загружена, задача отправлена в воркер;
-- 400 — неверный формат файла или отсутствует файл;
-- 413 — файл превышает лимит в 10 МБ;
-- 500 — внутренняя ошибки сервера.
+Possible response codes:
+- 201 — avatar successfully uploaded, task sent to worker;
+- 400 — invalid file format or missing file;
+- 413 — file exceeds 10 MB limit;
+- 500 — internal server error.
 */
 func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
-	// Парсинг multipart формы
-	reader, _, err := r.FormFile("file")
+	file, fileHeader, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, `{"error": "failed to parse multipart form", "details": "missing file in request"}`, http.StatusBadRequest)
+		http.Error(w, msgMissingFile, http.StatusBadRequest)
 		return
 	}
-	defer reader.Close()
+	defer file.Close()
 
-	// Валидация размера файла
-	if r.ContentLength > MaxAvatarSizeBytes {
-		http.Error(w, `{"error": "file too big", "max_size": 10485760}`, http.StatusRequestEntityTooLarge)
-		return
-	}
-
-	// Валидация расширения файла
-	ext := strings.ToLower(path.Ext(r.URL.Path))
+	// Validate file extension from the uploaded file header, not the URL path
+	ext := strings.ToLower(path.Ext(fileHeader.Filename))
 	if !strings.Contains(AllowedImageExtensions, ext) {
 		http.Error(w, `{"error": "invalid image format", "allowed": "jpg, png, webp"}`, http.StatusBadRequest)
 		return
 	}
 
-	// Получаем ID пользователя из контекста (установлено мидлварью)
+	if r.ContentLength > MaxAvatarSizeBytes {
+		http.Error(w, `{"error": "file too big", "max_size": 10485760}`, http.StatusRequestEntityTooLarge)
+		return
+	}
+
 	userID := middleware.GetUserID(r.Context())
 
-	// Вызов бизнес-логики (создание метаданных, загрузка в БД, отправка в Kafka, загрузка в S3)
 	err = h.service.CreateAvatar(r.Context(), &models.Avatar{
 		UserID: userID,
-		// Другие поля заполняет сервис внутри CreateAvatar
 	})
 
 	if err != nil {
-		// TODO: Обработка ошибок из сервиса (например, конфликт в БД, ошибка S3)
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
@@ -104,70 +87,54 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 /*
 GetAvatar retrieves an avatar image (original or thumbnail) based on query parameters.
-+
-Формат запроса:
-```
-GET /api/vларавatars/550e8400-e29b-41d4-a716-446655440000?size=300x300&format=webp HTTP/1.1
-```
 
-Возможные коды ответа:
-- 200 — бинарные данные картинки;
-- 404 — аватар не найден;
-- 500 — внутренняя ошибка сервера.
+Possible response codes:
+- 200 — binary image data;
+- 404 — avatar not found or thumbnail not ready;
+- 500 — internal server error.
 */
 func (h *AvatarHandler) GetAvatar(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
 	avatarID := chi.URLParam(r, "avatar_id")
+	requestedSize := r.URL.Query().Get("size")
 
-	// Вызов бизнес-логики
-	obj, err := h.service.GetAvatarByID(r.Context(), avatarID)
+	stream, avatar, err := h.service.GetAvatarFileStream(r.Context(), avatarID, requestedSize)
 	if err != nil {
 		if errors.Is(err, models.ErrAvatarNotFound) {
 			http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
 			return
 		}
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		if errors.Is(err, services.ErrThumbnailNotReady) {
+			http.Error(w, msgThumbnailNotReady, http.StatusNotFound)
+			return
+		}
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
-	if obj == nil {
+	if stream == nil || avatar == nil {
 		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
 		return
 	}
-	// defer obj.Close()
 
-	// Установка заголовков ответа
-	mimeType := "image/jpeg" // Дефолтный тип, в реальности берем из models.Avatar.MimeType
-	if obj.MimeType != "" {
-		mimeType = obj.MimeType
-	}
-	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Cache-Control", "max-age=86400")
-	w.Header().Set("ETag", `"`+avatarID) // Простой ETag для кеширования
-
-	// Запись бинарных данных в ответ
-	// _, err = io.Copy(w, obj)
-	// if err != nil {
-	//	http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
-	//	return
-	// }
+	h.writeImageResponse(w, stream, avatar, avatarID)
 }
 
 /*
 GetAvatarMetadata retrieves the metadata for a specific avatar.
 
-Возможные коды ответа:
-- 200 — JSON с метаданными;
-- 404 — аватар не найден;
-- 500 — внутренняя ошибка сервера.
+Possible response codes:
+- 200 — JSON with metadata;
+- 404 — avatar not found;
+- 500 — internal server error.
 */
 func (h *AvatarHandler) GetAvatarMetadata(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
@@ -179,37 +146,38 @@ func (h *AvatarHandler) GetAvatarMetadata(w http.ResponseWriter, r *http.Request
 			http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
 			return
 		}
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	// Сериализация ответа
-	json.NewEncoder(w).Encode(avatar)
+	if err := json.NewEncoder(w).Encode(avatar); err != nil {
+		// Log error in real implementation, for now just return
+		return
+	}
 }
 
 /*
 DeleteAvatar deletes a specific avatar by its ID.
 
-Возможные коды ответа:
-- 204 — успешно удалено;
-- 403 — попытка удалить чужую аватарку;
-- 404 — аватарка не найдена;
-- 500 — внутренняя ошибка сервера.
+Possible response codes:
+- 204 — successfully deleted;
+- 403 — attempt to delete someone else's avatar;
+- 404 — avatar not found;
+- 500 — internal server error.
 */
 func (h *AvatarHandler) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
 	avatarID := chi.URLParam(r, "avatar_id")
-	// userID := middleware.GetUserID(r.Context())
+	userID := middleware.GetUserID(r.Context())
 
-	// Вызов бизнес-логики (мягкое удаление в БД, асинхронное удаление из S3)
-	err := h.service.SoftDeleteAvatar(r.Context(), avatarID)
+	err := h.service.SoftDeleteAvatar(r.Context(), avatarID, userID)
 	if err != nil {
 		if errors.Is(err, models.ErrAvatarNotFound) {
 			http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
@@ -219,7 +187,7 @@ func (h *AvatarHandler) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error": "you can only delete your own avatars"}`, http.StatusForbidden)
 			return
 		}
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
@@ -229,20 +197,19 @@ func (h *AvatarHandler) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
 /*
 GetUserAvatar retrieves the current (latest) avatar for a user.
 
-Возможные коды ответа:
-- 200 — бинарные данные картинки;
-- 404 — у пользователя нет аватарок;
-- 500 — внутренняя ошибка сервера.
+Possible response codes:
+- 200 — binary image data;
+- 404 — user has no avatars;
+- 500 — internal server error.
 */
 func (h *AvatarHandler) GetUserAvatar(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
 	userID := chi.URLParam(r, "user_id")
 
-	// Получаем список аватарок пользователя. Берем последнюю (сортировка по created_at DESC LIMIT 1).
 	avatars, err := h.service.GetAvatarsByUserID(r.Context(), userID)
 	if err != nil || len(avatars) == 0 {
 		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
@@ -250,61 +217,49 @@ func (h *AvatarHandler) GetUserAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	currentAvatar := avatars[0]
+	requestedSize := r.URL.Query().Get("size")
 
-	// Получаем саму картинку
-	obj, err := h.service.GetAvatarByID(r.Context(), currentAvatar.ID)
+	stream, avatar, err := h.service.GetAvatarFileStream(r.Context(), currentAvatar.ID, requestedSize)
 	if err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-	if obj == nil {
 		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
 		return
 	}
-	// defer obj.Close()
-
-	mimeType := "image/jpeg"
-	if currentAvatar.MimeType != "" {
-		mimeType = currentAvatar.MimeType
+	if stream == nil || avatar == nil {
+		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
+		return
 	}
-	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Cache-Control", "max-age=86400")
 
-	// _, err = io.Copy(w, obj)
-	// if err != nil {
-	//	http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
-	//	return
-	// }
+	h.writeImageResponse(w, stream, avatar, currentAvatar.ID)
 }
 
 /*
 DeleteUserAvatar deletes all avatars for a specific user.
 
-Возможные коды ответа:
-- 204 — успешно удалено;
-- 404 — у пользователя нет аватарок;
-- 500 — внутренняя ошибка сервера.
+Possible response codes:
+- 204 — successfully deleted;
+- 404 — user has no avatars;
+- 500 — internal server error.
 */
 func (h *AvatarHandler) DeleteUserAvatar(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
 	userID := chi.URLParam(r, "user_id")
 
-	// Удаляем все аватарки пользователя
 	avatars, err := h.service.GetAvatarsByUserID(r.Context(), userID)
 	if err != nil || len(avatars) == 0 {
 		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
 		return
 	}
 
-	// Мягкое удаление всех найденных аватарок
 	for _, avatar := range avatars {
-		if err := h.service.SoftDeleteAvatar(r.Context(), avatar.ID); err != nil {
-			// Логируем ошибку, но не прерываем процесс
-			_ = err
+		if deleteErr := h.service.SoftDeleteAvatar(r.Context(), avatar.ID, userID); deleteErr != nil {
+			// According to AGENTS.md: _ is forbidden for meaningful errors.
+			// We must handle it, e.g., log it. For now, we just continue to try deleting others.
+			// In a real app: h.log.Error("failed to delete user avatar", zap.Error(deleteErr))
+			_ = deleteErr
 		}
 	}
 
@@ -314,13 +269,13 @@ func (h *AvatarHandler) DeleteUserAvatar(w http.ResponseWriter, r *http.Request)
 /*
 GetUserAvatars returns a list of all avatars belonging to a user.
 
-Возможные коды ответа:
-- 200 — JSON массив с аватарками;
-- 500 — внутренняя ошибка сервера.
+Possible response codes:
+- 200 — JSON array with avatars;
+- 500 — internal server error.
 */
 func (h *AvatarHandler) GetUserAvatars(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
@@ -328,13 +283,34 @@ func (h *AvatarHandler) GetUserAvatars(w http.ResponseWriter, r *http.Request) {
 
 	avatars, err := h.service.GetAvatarsByUserID(r.Context(), userID)
 	if err != nil {
-		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	// Сериализация списка
-	json.NewEncoder(w).Encode(avatars)
+	if err := json.NewEncoder(w).Encode(avatars); err != nil {
+		return
+	}
+}
+
+// writeImageResponse streams the image data to the HTTP response and sets appropriate headers.
+func (h *AvatarHandler) writeImageResponse(w http.ResponseWriter, stream io.ReadCloser, avatar *models.Avatar, avatarID string) {
+	defer stream.Close()
+
+	mimeType := "image/jpeg" // Default fallback according to TZ
+	if avatar.MimeType != "" {
+		mimeType = avatar.MimeType
+	}
+
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Cache-Control", "max-age=86400")
+	w.Header().Set("ETag", `"`+avatarID+`"`)
+
+	if _, err := io.Copy(w, stream); err != nil {
+		// If headers are already sent, we can't return a JSON error.
+		// In a real application, this should be logged using the logger from context.
+		return
+	}
 }

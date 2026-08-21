@@ -10,6 +10,8 @@ import (
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/handlers"
 	mw "github.com/KalessinD/gophprofile/internal/middleware"
+	"github.com/KalessinD/gophprofile/internal/repositories/s3"
+	"github.com/KalessinD/gophprofile/internal/services"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -92,20 +94,36 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 		MaxAge:           300,
 	}))
 
-	avatarService := handlers.NewAvatarHandler(nil)
+	return router
+}
+
+func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, pgdb *sql.DB) (http.Handler, error) {
+	router := GetBaseRouter(cfg, log)
+
+	var fileStorage services.ObjectStorage
+	if cfg.S3ListenAddr != "" {
+		s3Client, err := s3.NewS3Storage(ctx, cfg, log)
+		if err != nil {
+			return nil, fmt.Errorf("initializing s3 storage: %w", err)
+		}
+		fileStorage = s3Client
+	}
+
+	avatraService := services.NewAvatarService(nil, fileStorage, nil, cfg.S3Bucket)
+	avatarHandle := handlers.NewAvatarHandler(avatraService)
 
 	// API V1 Роуты
 	router.Route("/api/v1", func(r chi.Router) {
 		// Avatar routes
-		r.Post("/avatars", avatarService.UploadAvatar)
-		r.Get("/avatars/{avatar_id}", avatarService.GetAvatar)
-		r.Get("/avatars/{avatar_id}/metadata", avatarService.GetAvatarMetadata)
-		r.Delete("/avatars/{avatar_id}", avatarService.DeleteAvatar)
+		r.Post("/avatars", avatarHandle.UploadAvatar)
+		r.Get("/avatars/{avatar_id}", avatarHandle.GetAvatar)
+		r.Get("/avatars/{avatar_id}/metadata", avatarHandle.GetAvatarMetadata)
+		r.Delete("/avatars/{avatar_id}", avatarHandle.DeleteAvatar)
 
 		// User specific routes
-		r.Get("/users/{user_id}/avatar", avatarService.GetUserAvatar)
-		r.Delete("/users/{user_id}/avatar", avatarService.DeleteUserAvatar)
-		r.Get("/users/{user_id}/avatars", avatarService.GetUserAvatars)
+		r.Get("/users/{user_id}/avatar", avatarHandle.GetUserAvatar)
+		r.Delete("/users/{user_id}/avatar", avatarHandle.DeleteUserAvatar)
+		r.Get("/users/{user_id}/avatars", avatarHandle.GetUserAvatars)
 	})
 
 	// System routes
@@ -113,12 +131,6 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-
-	return router
-}
-
-func NewRouter(_ context.Context, cfg *config.ServerConfig, log *zap.Logger, _ *sql.DB) (http.Handler, error) {
-	router := GetBaseRouter(cfg, log)
 
 	return router, nil
 }
