@@ -118,7 +118,7 @@ func databaseWorks(ctx context.Context, cfg *config.ServerConfig, logger *zap.Lo
 
 // applyDatabaseMigrations just applies SQL migrations if required.
 func applyDatabaseMigrations(ctx context.Context, pgdb *sql.DB, logger *zap.Logger) error {
-	migrations := []string{"migrations/000001_init_schema.up.sql"}
+	migrations := []string{"migrations/000001_init_project.up.sql"}
 
 	err := srv.NewPgMigrator(pgdb).Apply(ctx, MigrationsDir, migrations)
 	if err != nil {

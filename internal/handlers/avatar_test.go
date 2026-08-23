@@ -64,7 +64,7 @@ func newMultipartRequest(t *testing.T, fileName string, content []byte) *http.Re
 	t.Helper()
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile("file", fileName)
+	part, err := writer.CreateFormFile("image", fileName)
 	require.NoError(t, err)
 	_, err = part.Write(content)
 	require.NoError(t, err)

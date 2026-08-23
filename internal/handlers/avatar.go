@@ -51,7 +51,7 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, _, err := r.FormFile("file")
+	file, _, err := r.FormFile("image") // see web/static/index.html
 	if err != nil {
 		http.Error(w, msgMissingFile, http.StatusBadRequest)
 		return
