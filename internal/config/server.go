@@ -35,6 +35,7 @@ type (
 		DatabaseDSN     string `json:"database_dsn,omitempty"`
 		KafkaBrokers    string `json:"kafka_brokers,omitempty"`
 		KafkaTopic      string `json:"kafka_topic,omitempty"`
+		KafkaGroupID    string `json:"kafka_group_id,omitempty"`
 		ApplyMigrations bool   `json:"apply_migrations"`
 
 		TLS *struct {
@@ -124,6 +125,7 @@ func (c *ServerConfig) UpdateFromEnvironment() error {
 	c.S3.Bucket = GetEnvOrFallback("S3_BUCKET", c.S3.Bucket)
 	c.Kafka.Brokers = GetEnvOrFallback("KAFKA_BROKERS", c.Kafka.Brokers)
 	c.Kafka.Topic = GetEnvOrFallback("KAFKA_TOPIC", c.Kafka.Topic)
+	c.Kafka.GroupID = GetEnvOrFallback("KAFKA_GROUP_ID", c.Kafka.GroupID)
 	c.ApplyMigrations = GetEnvOrFallback("APPLY_DB_MIGRATIONS", c.ApplyMigrations)
 
 	tlsCertFile := GetEnvOrFallback("TLS_CERT_FILE", "")
@@ -151,6 +153,7 @@ func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 	flagSet.StringVar(&c.S3.Bucket, "s3-bucket", c.S3.Bucket, "S3 bucket")
 	flagSet.StringVar(&c.Kafka.Brokers, "kafka-brokers", c.Kafka.Brokers, "Kafka broker addresses (comma separated)")
 	flagSet.StringVar(&c.Kafka.Topic, "kafka-topic", c.Kafka.Topic, "Kafka topic for avatar processing")
+	flagSet.StringVar(&c.Kafka.GroupID, "kafka-group-id", c.Kafka.GroupID, "Kafka consumer group ID")
 
 	// Using temporary variables to prevent nil pointer dereference if TLSConfig is nil
 	var tlsCertFile string
@@ -234,6 +237,10 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 
 	if jsonCfg.KafkaTopic != "" {
 		c.Kafka.Topic = jsonCfg.KafkaTopic
+	}
+
+	if jsonCfg.KafkaGroupID != "" {
+		c.Kafka.GroupID = jsonCfg.KafkaGroupID
 	}
 
 	if jsonCfg.TLS != nil {

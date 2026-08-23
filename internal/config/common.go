@@ -13,6 +13,7 @@ const (
 
 	DefaultKafkaBrokers string = ""
 	DefaultKafkaTopic   string = "avatar-processing"
+	DefaultKafkaGroupID string = "gophprofile-worker-group"
 )
 
 type (
@@ -27,6 +28,7 @@ type (
 	Kafka struct {
 		Brokers string
 		Topic   string
+		GroupID string
 	}
 )
 
@@ -44,6 +46,7 @@ func getDefaultKafka() *Kafka {
 	return &Kafka{
 		Brokers: DefaultKafkaBrokers,
 		Topic:   DefaultKafkaTopic,
+		GroupID: DefaultKafkaGroupID,
 	}
 }
 
