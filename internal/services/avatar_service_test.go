@@ -154,3 +154,39 @@ func TestHardDeleteAvatar_Success(t *testing.T) {
 	err := svc.HardDeleteAvatar(t.Context(), "av-1")
 	require.NoError(t, err)
 }
+
+func TestGetAvatarByID_Success(t *testing.T) {
+	ctrl, repo, _, _, svc := setupServiceTest(t)
+	defer ctrl.Finish()
+
+	expectedAvatar := &models.Avatar{ID: "id-1", UserID: "user-1"}
+	repo.EXPECT().GetAvatarByID(gomock.Any(), "id-1").Return(expectedAvatar, nil)
+
+	result, err := svc.GetAvatarByID(t.Context(), "id-1")
+	require.NoError(t, err)
+	assert.Equal(t, expectedAvatar, result)
+}
+
+func TestGetAvatarByID_RepoError(t *testing.T) {
+	ctrl, repo, _, _, svc := setupServiceTest(t)
+	defer ctrl.Finish()
+
+	repo.EXPECT().GetAvatarByID(gomock.Any(), "id-1").Return(nil, models.ErrAvatarNotFound)
+
+	result, err := svc.GetAvatarByID(t.Context(), "id-1")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, models.ErrAvatarNotFound)
+	assert.Nil(t, result)
+}
+
+func TestGetAvatarsByUserID_Success(t *testing.T) {
+	ctrl, repo, _, _, svc := setupServiceTest(t)
+	defer ctrl.Finish()
+
+	expectedList := []*models.Avatar{{ID: "id-1"}, {ID: "id-2"}}
+	repo.EXPECT().GetAvatarsByUserID(gomock.Any(), "user-1").Return(expectedList, nil)
+
+	result, err := svc.GetAvatarsByUserID(t.Context(), "user-1")
+	require.NoError(t, err)
+	assert.Equal(t, expectedList, result)
+}

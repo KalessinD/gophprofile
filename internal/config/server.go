@@ -262,11 +262,11 @@ func NewServerConfig(flagSet *flag.FlagSet, args []string) (*ServerConfig, error
 		}
 	}
 
-	if err := cfg.UpdateFromCLIArgs(flagSet, args); err != nil {
+	if err := cfg.UpdateFromEnvironment(); err != nil {
 		return nil, err
 	}
 
-	if err := cfg.UpdateFromEnvironment(); err != nil {
+	if err := cfg.UpdateFromCLIArgs(flagSet, args); err != nil {
 		return nil, err
 	}
 
