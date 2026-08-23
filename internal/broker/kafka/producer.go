@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/KalessinD/gophprofile/internal/broker"
@@ -13,25 +12,14 @@ import (
 type (
 	// Producer implements broker.EventPublisher using Apache Kafka.
 	Producer struct {
-		producer sarama.AsyncProducer
+		producer sarama.SyncProducer
 		topic    string
 	}
 )
 
-// NewProducer initializes a new Kafka producer.
-func NewProducer(brokers string, topic string) (*Producer, error) {
-	config := sarama.NewConfig()
-	config.Producer.RequiredAcks = sarama.WaitForLocal
-	config.Producer.Compression = sarama.CompressionZSTD
-	config.Producer.Return.Successes = true
-	config.Producer.Timeout = 5 * time.Second
-	config.Producer.Flush.Frequency = time.Millisecond * 50
-	config.Producer.Flush.MaxMessages = 100
-	config.Producer.Flush.Messages = 50
-	config.Producer.Retry.Max = 10
-	config.Metadata.RefreshFrequency = 1024
-
-	producer, err := sarama.NewAsyncProducer([]string{brokers}, config)
+// NewProducer initializes a new Kafka synchronous producer.
+func NewProducer(brokers string, topic string, saramaCfg *sarama.Config) (*Producer, error) {
+	producer, err := sarama.NewSyncProducer([]string{brokers}, saramaCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating kafka producer: %w", err)
 	}
@@ -42,8 +30,14 @@ func NewProducer(brokers string, topic string) (*Producer, error) {
 	}, nil
 }
 
-// PublishAvatarCreatedEvent serializes the event and sends it to the Kafka topic.
-func (p *Producer) PublishAvatarCreatedEvent(ctx context.Context, event *broker.AvatarEvent) error {
+// PublishAvatarCreatedEvent serializes the event and sends it to the Kafka topic synchronously.
+func (p *Producer) PublishAvatarCreatedEvent(_ context.Context, avatarID string, userID string, s3Key string) error {
+	event := &broker.AvatarEvent{
+		AvatarID: avatarID,
+		UserID:   userID,
+		S3Key:    s3Key,
+	}
+
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshaling avatar event: %w", err)
@@ -54,14 +48,12 @@ func (p *Producer) PublishAvatarCreatedEvent(ctx context.Context, event *broker.
 		Value: sarama.ByteEncoder(eventBytes),
 	}
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case p.producer.Input() <- message:
-		return nil
-	case err := <-p.producer.Errors():
-		return fmt.Errorf("kafka producer message: %w", err)
+	_, _, err = p.producer.SendMessage(message)
+	if err != nil {
+		return fmt.Errorf("sending message to kafka: %w", err)
 	}
+
+	return nil
 }
 
 // Close gracefully shuts down the Kafka producer.

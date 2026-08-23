@@ -44,9 +44,12 @@ func TestNewRouter_MissingS3(t *testing.T) {
 	cfg := &config.ServerConfig{
 		ProcessingTimeout: 10 * time.Second,
 		S3:                &config.S3{},
+		Kafka:             &config.Kafka{}, // Brokers is empty ""
 	}
 
 	router, err := srv.NewRouter(t.Context(), cfg, log, nil)
-	require.NoError(t, err)
-	assert.NotNil(t, router)
+
+	require.Error(t, err)
+	assert.Nil(t, router)
+	assert.Contains(t, err.Error(), "initializing kafka producer")
 }

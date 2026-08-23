@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/KalessinD/gophprofile/internal/broker/kafka"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/handlers"
 	mw "github.com/KalessinD/gophprofile/internal/middleware"
@@ -100,20 +101,30 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 	return router
 }
 
+// NewRouter initializes dependencies and configures HTTP routes.
 func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, pgdb *sql.DB) (http.Handler, error) {
+	var err error
+
 	router := GetBaseRouter(cfg, log)
 
 	var fileStorage services.ObjectStorage
 	if cfg.S3.ListenAddr != "" {
-		s3Client, err := s3.NewS3Storage(ctx, cfg.S3, log)
-		if err != nil {
-			return nil, fmt.Errorf("initializing s3 storage: %w", err)
+		s3Client, s3Err := s3.NewS3Storage(ctx, cfg.S3, log)
+		if s3Err != nil {
+			return nil, fmt.Errorf("initializing s3 storage: %w", s3Err)
 		}
 		fileStorage = s3Client
 	}
 
+	// Initialize Kafka producer
+	saramaCfg := kafka.ConvertToSaramaConfig(cfg.Kafka)
+	kafkaProducer, err := kafka.NewProducer(cfg.Kafka.Brokers, cfg.Kafka.Topic, saramaCfg)
+	if err != nil {
+		return nil, fmt.Errorf("initializing kafka producer: %w", err)
+	}
+
 	avatarRepo := postgres.NewSQLStorage(pgdb)
-	avatarService := services.NewAvatarService(avatarRepo, fileStorage, nil, cfg.S3.Bucket)
+	avatarService := services.NewAvatarService(avatarRepo, fileStorage, kafkaProducer, cfg.S3.Bucket)
 	avatarHandler := handlers.NewAvatarHandler(avatarService)
 
 	// API V1 Роуты
@@ -130,7 +141,7 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 		r.Get("/users/{user_id}/avatars", avatarHandler.GetUserAvatars)
 	})
 
-	healthHandler := handlers.NewHealthHandler(pgdb, fileStorage, nil) // nil для продюсера, пока не готов Kafka
+	healthHandler := handlers.NewHealthHandler(pgdb, fileStorage, kafkaProducer)
 
 	// System routes
 	router.Get("/health", healthHandler.CheckHealth)
@@ -149,9 +160,6 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 			http.ServeFile(w, r, staticIndexPath)
 		})
 	}
-
-	// fileServer := http.FileServer(http.Dir("./web/static"))
-	// router.Handle("/web/", http.StripPrefix("/web/", fileServer))
 
 	return router, nil
 }
