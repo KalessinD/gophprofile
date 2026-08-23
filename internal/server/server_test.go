@@ -7,6 +7,7 @@ import (
 	"github.com/KalessinD/gophprofile/internal/config"
 	srv "github.com/KalessinD/gophprofile/internal/server"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -36,4 +37,16 @@ func TestPsqlConnect_Failure(t *testing.T) {
 	db, err := srv.PsqlConnect(ctx, dsn, log)
 	assert.Error(t, err, "Should return error for invalid DSN")
 	assert.Nil(t, db)
+}
+
+func TestNewRouter_MissingS3(t *testing.T) {
+	log := zap.NewNop()
+	cfg := &config.ServerConfig{
+		ProcessingTimeout: 10 * time.Second,
+		S3:                &config.S3{},
+	}
+
+	router, err := srv.NewRouter(t.Context(), cfg, log, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, router)
 }

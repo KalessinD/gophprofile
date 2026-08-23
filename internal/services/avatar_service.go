@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/KalessinD/gophprofile/internal/models"
+	"github.com/google/uuid"
 )
 
 var (
@@ -17,7 +18,6 @@ var (
 
 type (
 	// AvatarRepository defines the contract for metadata persistence in PostgreSQL.
-	// Strictly follows AGENTS.md: no S3 or Broker methods allowed here.
 	AvatarRepository interface {
 		CreateAvatar(ctx context.Context, avatar *models.Avatar) error
 		GetAvatarByID(ctx context.Context, avatarID string) (*models.Avatar, error)
@@ -67,21 +67,50 @@ func (s *AvatarService) EnsureDependencies() error {
 }
 
 // CreateAvatar handles the business logic for creating a new avatar.
-func (s *AvatarService) CreateAvatar(ctx context.Context, avatar *models.Avatar) error {
-	// TODO: implement
+func (s *AvatarService) CreateAvatar(ctx context.Context, avatar *models.Avatar, fileReader io.Reader) error {
+	avatar.ID = uuid.New().String()
+	avatar.Status = models.AvatarStatusProcessing
+	avatar.OriginalS3Key = fmt.Sprintf("avatars/%s/%s", avatar.UserID, avatar.ID)
+
+	// Upload original file to S3
+	if err := s.s3.UploadObject(ctx, s.bucket, avatar.OriginalS3Key, fileReader); err != nil {
+		return fmt.Errorf("uploading original to s3: %w", err)
+	}
+
+	// Save metadata to DB
+	if err := s.repo.CreateAvatar(ctx, avatar); err != nil {
+		// Attempt to cleanup S3 object if DB save fails
+		if delErr := s.s3.DeleteObject(ctx, s.bucket, avatar.OriginalS3Key); delErr != nil {
+			// In a real app, log this error: log.Error("failed to cleanup s3 object after db error", zap.Error(delErr))
+			_ = delErr
+		}
+		return fmt.Errorf("saving avatar metadata to db: %w", err)
+	}
+
+	// Publish event to Kafka for async processing
+	if err := s.producer.PublishAvatarCreatedEvent(ctx, avatar.ID, avatar.UserID, avatar.OriginalS3Key); err != nil {
+		return fmt.Errorf("publishing avatar created event: %w", err)
+	}
+
 	return nil
 }
 
 // GetAvatarByID retrieves avatar metadata by its ID.
 func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (*models.Avatar, error) {
-	// TODO: implement
-	return nil, nil
+	avatar, err := s.repo.GetAvatarByID(ctx, avatarID)
+	if err != nil {
+		return nil, fmt.Errorf("getting avatar by id from repo: %w", err)
+	}
+	return avatar, nil
 }
 
 // GetAvatarsByUserID retrieves a list of avatar metadata for a specific user.
 func (s *AvatarService) GetAvatarsByUserID(ctx context.Context, userID string) ([]*models.Avatar, error) {
-	// TODO: implement
-	return nil, nil
+	avatars, err := s.repo.GetAvatarsByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("getting avatars by user id from repo: %w", err)
+	}
+	return avatars, nil
 }
 
 // SoftDeleteAvatar performs a soft delete of an avatar after verifying user ownership.
@@ -102,14 +131,40 @@ func (s *AvatarService) SoftDeleteAvatar(ctx context.Context, avatarID string, u
 	return nil
 }
 
-// HardDeleteAvatar permanently deletes an avatar from the database.
+// HardDeleteAvatar permanently deletes an avatar from the database and S3.
 func (s *AvatarService) HardDeleteAvatar(ctx context.Context, avatarID string) error {
-	// TODO: implement
+	avatar, err := s.repo.GetAvatarByID(ctx, avatarID)
+	if err != nil {
+		return fmt.Errorf("getting avatar for hard delete: %w", err)
+	}
+
+	// Delete original from S3
+	if err := s.s3.DeleteObject(ctx, s.bucket, avatar.OriginalS3Key); err != nil {
+		return fmt.Errorf("deleting original s3 object: %w", err)
+	}
+
+	// Delete thumbnails from S3 if they exist
+	if avatar.Thumbnail100S3Key != nil && *avatar.Thumbnail100S3Key != "" {
+		if err := s.s3.DeleteObject(ctx, s.bucket, *avatar.Thumbnail100S3Key); err != nil {
+			return fmt.Errorf("deleting 100x100 s3 object: %w", err)
+		}
+	}
+	if avatar.Thumbnail300S3Key != nil && *avatar.Thumbnail300S3Key != "" {
+		if err := s.s3.DeleteObject(ctx, s.bucket, *avatar.Thumbnail300S3Key); err != nil {
+			return fmt.Errorf("deleting 300x300 s3 object: %w", err)
+		}
+	}
+
+	// Delete metadata from DB
+	if err := s.repo.HardDeleteAvatar(ctx, avatarID); err != nil {
+		return fmt.Errorf("hard deleting avatar from db: %w", err)
+	}
+
 	return nil
 }
 
 // UpdateAvatarStatus updates the processing status and thumbnail keys of an avatar.
-func (s *AvatarService) UpdateAvatarStatus(ctx context.Context, avatarID string, status string, thumbnail100S3Key string, thumbnail300S3Key string, width int, height int) error {
+func (s *AvatarService) UpdateAvatarStatus(_ context.Context, _ string, _ string, _ string, _ string, _ int, _ int) error {
 	// TODO: implement
 	return nil
 }

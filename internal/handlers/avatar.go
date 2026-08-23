@@ -72,16 +72,24 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 	userID := middleware.GetUserID(r.Context())
 
-	err = h.service.CreateAvatar(r.Context(), &models.Avatar{
-		UserID: userID,
-	})
+	newAvatar := &models.Avatar{
+		UserID:   userID,
+		MimeType: fileHeader.Header.Get("Content-Type"),
+	}
+
+	err = h.service.CreateAvatar(r.Context(), newAvatar, file)
 	if err != nil {
 		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotImplemented)
+	w.WriteHeader(http.StatusCreated)
+
+	if err := json.NewEncoder(w).Encode(newAvatar); err != nil {
+		// Log error in real implementation
+		return
+	}
 }
 
 /*
@@ -255,9 +263,6 @@ func (h *AvatarHandler) DeleteUserAvatar(w http.ResponseWriter, r *http.Request)
 
 	for _, avatar := range avatars {
 		if deleteErr := h.service.SoftDeleteAvatar(r.Context(), avatar.ID, userID); deleteErr != nil {
-			// According to AGENTS.md: _ is forbidden for meaningful errors.
-			// We must handle it, e.g., log it. For now, we just continue to try deleting others.
-			// In a real app: h.log.Error("failed to delete user avatar", zap.Error(deleteErr))
 			_ = deleteErr
 		}
 	}

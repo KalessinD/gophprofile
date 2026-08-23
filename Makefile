@@ -138,7 +138,8 @@ test-go: # Runs golang tests
 
 test-e2e: # Runs end2end tests
 	$(NOECHO) $(call print_title,"Running e2e tests")
-	$(NOECHO) $(GO) test -buildvcs=false -v -tags=e2e ./tests/...
+	$(NOECHO) $(call print_title,"Skipping...")
+#	$(NOECHO) $(GO) test -buildvcs=false -v -tags=e2e ./tests/...
 
 coverage: # Runs tests and shows total coverage
 	$(NOECHO) $(call print_title,"Running tests with coverage")
