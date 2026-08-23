@@ -60,13 +60,13 @@ func addChiURLParams(req *http.Request, params map[string]string) *http.Request 
 }
 
 // newMultipartRequest is a helper to create a valid multipart upload request.
-func newMultipartRequest(t *testing.T, fileName string, content string) *http.Request {
+func newMultipartRequest(t *testing.T, fileName string, content []byte) *http.Request {
 	t.Helper()
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	part, err := writer.CreateFormFile("file", fileName)
 	require.NoError(t, err)
-	_, err = part.Write([]byte(content))
+	_, err = part.Write(content)
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 
@@ -79,22 +79,21 @@ func TestUploadAvatar_Success(t *testing.T) {
 	ctrl, repoMock, s3Mock, prodMock, h := setupTestEnv(t)
 	defer ctrl.Finish()
 
-	// Expect S3 Upload
 	s3Mock.EXPECT().
 		UploadObject(gomock.Any(), testBucket, gomock.Any(), gomock.Any()).
 		Return(nil)
 
-	// Expect DB Save
 	repoMock.EXPECT().
 		CreateAvatar(gomock.Any(), gomock.Any()).
 		Return(nil)
 
-	// Expect Kafka Publish
 	prodMock.EXPECT().
 		PublishAvatarCreatedEvent(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
 
-	req := newMultipartRequest(t, "image.jpg", "fake-data")
+	// Fake JPEG header bytes to pass http.DetectContentType validation
+	fakeJPEGHeader := []byte("\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00")
+	req := newMultipartRequest(t, "image.jpg", fakeJPEGHeader)
 	req = addUserToContext(req, testUserID)
 
 	rec := httptest.NewRecorder()
@@ -102,7 +101,6 @@ func TestUploadAvatar_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	// Verify the returned JSON payload matches the expected 201 response from TZ
 	var responseAvatar models.Avatar
 	err := json.NewDecoder(rec.Body).Decode(&responseAvatar)
 	require.NoError(t, err)
@@ -111,6 +109,21 @@ func TestUploadAvatar_Success(t *testing.T) {
 	assert.Equal(t, models.AvatarStatusProcessing, responseAvatar.Status)
 	assert.NotEmpty(t, responseAvatar.ID)
 	assert.Contains(t, responseAvatar.OriginalS3Key, "avatars/"+testUserID+"/")
+}
+
+func TestUploadAvatar_InvalidFormat(t *testing.T) {
+	ctrl, _, _, _, h := setupTestEnv(t)
+	defer ctrl.Finish()
+
+	// Plain text will fail http.DetectContentType image check
+	req := newMultipartRequest(t, "document.pdf", []byte("fake-data"))
+	req = addUserToContext(req, testUserID)
+
+	rec := httptest.NewRecorder()
+	h.UploadAvatar(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "invalid image format")
 }
 
 func TestUploadAvatar_MissingFile(t *testing.T) {
@@ -126,20 +139,6 @@ func TestUploadAvatar_MissingFile(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "missing file in request")
-}
-
-func TestUploadAvatar_InvalidFormat(t *testing.T) {
-	ctrl, _, _, _, h := setupTestEnv(t)
-	defer ctrl.Finish()
-
-	req := newMultipartRequest(t, "document.pdf", "fake-data")
-	req = addUserToContext(req, testUserID)
-
-	rec := httptest.NewRecorder()
-	h.UploadAvatar(rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "invalid image format")
 }
 
 func TestGetAvatar_Success(t *testing.T) {

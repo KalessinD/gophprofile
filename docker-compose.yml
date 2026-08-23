@@ -51,7 +51,7 @@ services:
   server:
     container_name: gophprofile-server
     build:
-      context: ./docker/gophkeeper-server
+      context: ./docker/gophprofile-server
       additional_contexts:
         current: ./
       dockerfile: Dockerfile

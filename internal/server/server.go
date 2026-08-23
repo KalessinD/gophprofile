@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/KalessinD/gophprofile/internal/config"
@@ -128,11 +130,28 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 		r.Get("/users/{user_id}/avatars", avatarHandler.GetUserAvatars)
 	})
 
+	healthHandler := handlers.NewHealthHandler(pgdb, fileStorage, nil) // nil для продюсера, пока не готов Kafka
+
 	// System routes
-	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	router.Get("/health", healthHandler.CheckHealth)
+
+	// Web Interface routing
+	// Serve index.html for any /web/* path to support direct URL access
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("getting working directory: %w", err)
+	}
+
+	staticIndexPath := filepath.Join(workDir, "web", "static", "index.html")
+	if _, statErr := os.Stat(staticIndexPath); statErr == nil {
+		router.HandleFunc("/web/{path:[a-zA-Z0-9\\-]+}", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			http.ServeFile(w, r, staticIndexPath)
+		})
+	}
+
+	// fileServer := http.FileServer(http.Dir("./web/static"))
+	// router.Handle("/web/", http.StripPrefix("/web/", fileServer))
 
 	return router, nil
 }

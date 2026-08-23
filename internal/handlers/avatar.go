@@ -1,11 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"path"
 	"strings"
 
 	"github.com/KalessinD/gophprofile/internal/middleware"
@@ -51,33 +51,38 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, fileHeader, err := r.FormFile("file")
+	file, _, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, msgMissingFile, http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	// Validate file extension from the uploaded file header, not the URL path
-	ext := strings.ToLower(path.Ext(fileHeader.Filename))
-	if !strings.Contains(AllowedImageExtensions, ext) {
-		http.Error(w, `{"error": "invalid image format", "allowed": "jpg, png, webp"}`, http.StatusBadRequest)
+	// Read first 512 bytes for real MIME type detection (prevents fake extensions)
+	sniffBytes, err := io.ReadAll(io.LimitReader(file, 512))
+	if err != nil {
+		http.Error(w, `{"error": "failed to read file header"}`, http.StatusBadRequest)
 		return
 	}
 
-	if r.ContentLength > MaxAvatarSizeBytes {
-		http.Error(w, `{"error": "file too big", "max_size": 10485760}`, http.StatusRequestEntityTooLarge)
+	detectedMIME := http.DetectContentType(sniffBytes)
+	if !strings.HasPrefix(detectedMIME, "image/") {
+		http.Error(w, `{"error": "invalid image format", "detected_mime": "`+detectedMIME+`"}`, http.StatusBadRequest)
 		return
 	}
+
+	// Wrap file in LimitReader to strictly enforce the 10MB limit (prevents Content-Length spoofing)
+	// MultiReader prepends the bytes we already read, so the service gets the full uncorrupted file
+	safeReader := io.LimitReader(io.MultiReader(bytes.NewReader(sniffBytes), file), MaxAvatarSizeBytes)
 
 	userID := middleware.GetUserID(r.Context())
 
 	newAvatar := &models.Avatar{
 		UserID:   userID,
-		MimeType: fileHeader.Header.Get("Content-Type"),
+		MimeType: detectedMIME, // Trust our own sniffing over client-provided Content-Type
 	}
 
-	err = h.service.CreateAvatar(r.Context(), newAvatar, file)
+	err = h.service.CreateAvatar(r.Context(), newAvatar, safeReader)
 	if err != nil {
 		http.Error(w, msgInternalServer, http.StatusInternalServerError)
 		return
@@ -87,7 +92,6 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 
 	if err := json.NewEncoder(w).Encode(newAvatar); err != nil {
-		// Log error in real implementation
 		return
 	}
 }
