@@ -190,3 +190,28 @@ func TestGetAvatarsByUserID_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expectedList, result)
 }
+
+func TestUpdateAvatarStatus_Success(t *testing.T) {
+	ctrl, repoMock, _, _, svc := setupServiceTest(t)
+	defer ctrl.Finish()
+
+	repoMock.EXPECT().
+		UpdateAvatarStatus(gomock.Any(), "av-1", models.AvatarStatusReady, "t100.png", "t300.png", 100, 100).
+		Return(nil)
+
+	err := svc.UpdateAvatarStatus(t.Context(), "av-1", models.AvatarStatusReady, "t100.png", "t300.png", 100, 100)
+	require.NoError(t, err)
+}
+
+func TestUpdateAvatarStatus_RepoError(t *testing.T) {
+	ctrl, repoMock, _, _, svc := setupServiceTest(t)
+	defer ctrl.Finish()
+
+	repoMock.EXPECT().
+		UpdateAvatarStatus(gomock.Any(), "av-1", models.AvatarStatusError, "", "", 0, 0).
+		Return(errors.New("db error"))
+
+	err := svc.UpdateAvatarStatus(t.Context(), "av-1", models.AvatarStatusError, "", "", 0, 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "updating avatar status in repository")
+}

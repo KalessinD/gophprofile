@@ -86,7 +86,6 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 	router.Use(middleware.Recoverer)
 	router.Use(mw.Logger(log))
 	router.Use(middleware.Timeout(cfg.ProcessingTimeout))
-	router.Use(mw.UserIDMiddleware)
 
 	// CORS middleware
 	router.Use(cors.Handler(cors.Options{
@@ -129,6 +128,8 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 
 	// API V1 Роуты
 	router.Route("/api/v1", func(r chi.Router) {
+		router.Use(mw.UserIDMiddleware)
+
 		// Avatar routes
 		r.Post("/avatars", avatarHandler.UploadAvatar)
 		r.Get("/avatars/{avatar_id}", avatarHandler.GetAvatar)

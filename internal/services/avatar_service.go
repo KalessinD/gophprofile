@@ -163,9 +163,19 @@ func (s *AvatarService) HardDeleteAvatar(ctx context.Context, avatarID string) e
 	return nil
 }
 
-// UpdateAvatarStatus updates the processing status and thumbnail keys of an avatar.
-func (s *AvatarService) UpdateAvatarStatus(_ context.Context, _ string, _ string, _ string, _ string, _ int, _ int) error {
-	// TODO: implement
+// UpdateAvatarStatus updates the processing status, thumbnail keys, and dimensions of an avatar.
+func (s *AvatarService) UpdateAvatarStatus(
+	ctx context.Context,
+	avatarID string,
+	status string,
+	thumbnail100S3Key string,
+	thumbnail300S3Key string,
+	width int,
+	height int,
+) error {
+	if err := s.repo.UpdateAvatarStatus(ctx, avatarID, status, thumbnail100S3Key, thumbnail300S3Key, width, height); err != nil {
+		return fmt.Errorf("updating avatar status in repository: %w", err)
+	}
 	return nil
 }
 

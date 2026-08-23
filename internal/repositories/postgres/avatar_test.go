@@ -202,3 +202,35 @@ func TestSQLStorage_UpdateAvatarStatus(t *testing.T) {
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 }
+
+func TestSQLStorage_HardDeleteAvatar(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	storage := postgres.NewSQLStorage(db)
+
+	// Escaping regex special characters (. and $) for strict sqlmock matching
+	expectedQuery := `DELETE FROM "gophprofile"\.avatars" WHERE id = \$1`
+
+	t.Run("successful hard delete", func(t *testing.T) {
+		mock.ExpectBegin()
+		mock.ExpectExec(expectedQuery).WithArgs("uuid-1").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+
+		err := storage.HardDeleteAvatar(t.Context(), "uuid-1")
+		require.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("database error during hard delete", func(t *testing.T) {
+		mock.ExpectBegin()
+		mock.ExpectExec(expectedQuery).WithArgs("uuid-err").WillReturnError(errors.New("connection lost"))
+		mock.ExpectRollback()
+
+		err := storage.HardDeleteAvatar(t.Context(), "uuid-err")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "connection lost")
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
