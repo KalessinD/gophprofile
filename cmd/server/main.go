@@ -36,8 +36,9 @@ func main() {
 
 func runHTTPServer(cfg *config.ServerConfig, logger *zap.Logger) error {
 	rootCtx, cancel := context.WithCancel(context.Background())
-	notifyCtx, _ := signal.NotifyContext(rootCtx, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+	notifyCtx, notifyCancel := signal.NotifyContext(rootCtx, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	defer cancel()
+	defer notifyCancel()
 
 	pgdb, err := databaseWorks(rootCtx, cfg, logger)
 	if err != nil {
@@ -107,7 +108,7 @@ func databaseWorks(ctx context.Context, cfg *config.ServerConfig, logger *zap.Lo
 	}
 
 	if cfg.ApplyMigrations {
-		err = applyDatabaseMigrations(ctx, pgdb, logger)
+		err = applyDatabaseMigrations(ctx, pgdb)
 		if err != nil {
 			return nil, err
 		}
@@ -117,13 +118,12 @@ func databaseWorks(ctx context.Context, cfg *config.ServerConfig, logger *zap.Lo
 }
 
 // applyDatabaseMigrations just applies SQL migrations if required.
-func applyDatabaseMigrations(ctx context.Context, pgdb *sql.DB, logger *zap.Logger) error {
+func applyDatabaseMigrations(ctx context.Context, pgdb *sql.DB) error {
 	migrations := []string{"migrations/000001_init_project.up.sql"}
 
 	err := srv.NewPgMigrator(pgdb).Apply(ctx, MigrationsDir, migrations)
 	if err != nil {
-		logger.Error("Can't apply migration", zap.Error(err))
-		return err
+		return fmt.Errorf("can't apply migration: %w", err)
 	}
 
 	return nil
