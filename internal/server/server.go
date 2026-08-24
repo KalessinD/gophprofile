@@ -123,7 +123,7 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 	}
 
 	avatarRepo := postgres.NewSQLStorage(pgdb)
-	avatarService := services.NewAvatarService(avatarRepo, fileStorage, kafkaProducer, cfg.S3.Bucket)
+	avatarService := services.NewAvatarService(avatarRepo, fileStorage, kafkaProducer, cfg.S3.Bucket, log)
 	s3URLBuilder := func(key string) string { // Builder generates HTTP URLs for S3 objects based on config
 		scheme := "http"
 		if cfg.S3.UseSSL {

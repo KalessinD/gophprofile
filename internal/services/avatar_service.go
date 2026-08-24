@@ -9,6 +9,7 @@ import (
 
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 var ErrThumbnailNotReady = errors.New("requested thumbnail is not ready yet")
@@ -42,16 +43,18 @@ type (
 		s3       ObjectStorage
 		producer AvatarProducer
 		bucket   string
+		logger   *zap.Logger
 	}
 )
 
 // NewAvatarService creates a new instance of AvatarService.
-func NewAvatarService(repo AvatarRepository, s3 ObjectStorage, producer AvatarProducer, bucket string) *AvatarService {
+func NewAvatarService(repo AvatarRepository, s3 ObjectStorage, producer AvatarProducer, bucket string, logger *zap.Logger) *AvatarService {
 	return &AvatarService{
 		repo:     repo,
 		s3:       s3,
 		producer: producer,
 		bucket:   bucket,
+		logger:   logger,
 	}
 }
 
@@ -70,18 +73,36 @@ func (s *AvatarService) CreateAvatar(ctx context.Context, avatar *models.Avatar,
 	if err := s.repo.CreateAvatar(ctx, avatar); err != nil {
 		// Attempt to cleanup S3 object if DB save fails
 		if delErr := s.s3.DeleteObject(ctx, s.bucket, avatar.OriginalS3Key); delErr != nil {
-			// In a real app, log this error: log.Error("failed to cleanup s3 object after db error", zap.Error(delErr))
-			_ = delErr
+			s.logger.Error("failed to cleanup S3 object after DB save failure", zap.String("avatar_id", avatar.ID), zap.String("s3_key", avatar.OriginalS3Key), zap.Error(delErr))
 		}
 		return fmt.Errorf("saving avatar metadata to db: %w", err)
 	}
 
 	// Publish event to Kafka for async processing
 	if err := s.producer.PublishAvatarCreatedEvent(ctx, avatar.ID, avatar.UserID, avatar.OriginalS3Key); err != nil {
+		// We use synchronous cleanup instead of marking the avatar status as 'error'.
+		// Marking as 'error' (alternative approach) leaves orphaned files in S3 and dangling
+		// 'processing' records in the DB, which would require a separate cron job to clean up.
+		// Synchronous cleanup guarantees immediate consistency, allowing the client to safely retry.
+		s.cleanupFailedCreation(ctx, avatar)
 		return fmt.Errorf("publishing avatar created event: %w", err)
 	}
 
 	return nil
+}
+
+// cleanupFailedCreation performs best-effort deletion of DB and S3 records
+// if post-creation steps (like Kafka publishing) fail.
+func (s *AvatarService) cleanupFailedCreation(ctx context.Context, avatar *models.Avatar) {
+	// Best-effort hard delete from DB. Errors are ignored to preserve the original Kafka error.
+	if delErr := s.repo.HardDeleteAvatar(ctx, avatar.ID); delErr != nil {
+		s.logger.Error("failed to cleanup DB record during rollback", zap.String("avatar_id", avatar.ID), zap.Error(delErr))
+	}
+
+	// Best-effort deletion from S3.
+	if delErr := s.s3.DeleteObject(ctx, s.bucket, avatar.OriginalS3Key); delErr != nil {
+		s.logger.Error("failed to cleanup S3 object during rollback", zap.String("avatar_id", avatar.ID), zap.String("s3_key", avatar.OriginalS3Key), zap.Error(delErr))
+	}
 }
 
 // GetAvatarByID retrieves avatar metadata by its ID.

@@ -38,7 +38,7 @@ func setupTestEnv(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepository
 	s3Mock := mocks.NewMockObjectStorage(ctrl)
 	prodMock := mocks.NewMockAvatarProducer(ctrl)
 
-	svc := services.NewAvatarService(repoMock, s3Mock, prodMock, testBucket)
+	svc := services.NewAvatarService(repoMock, s3Mock, prodMock, testBucket, zap.NewNop())
 
 	// Mock URL builder for tests
 	mockURLBuilder := func(key string) string { return "http://localhost/" + key }
