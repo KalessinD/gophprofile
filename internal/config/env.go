@@ -13,7 +13,7 @@ import (
 //
 // Otherwise returns false.
 func IsProduction() bool {
-	return GetEnv("YP_ENV") == "prod"
+	return os.Getenv("YP_ENV") == "prod"
 }
 
 // Returns true if YP_ENV environment is not set to "prod", which means the production environment.
@@ -21,11 +21,6 @@ func IsProduction() bool {
 // Otherwise returns false.
 func IsDevelopment() bool {
 	return !IsProduction()
-}
-
-// Returns the value of os.GetEnv if exists
-func GetEnv(key string) string {
-	return os.Getenv(key)
 }
 
 // Returns OS Environment
