@@ -1,3 +1,4 @@
+//go:generate mockgen -source=avatar.go -destination=mocks/mock_avatar.gen.go -package=mocks
 package postgres
 
 import (

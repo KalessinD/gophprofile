@@ -1,4 +1,4 @@
-//go:generate mockgen -source=avatar_service.go -destination=mocks/mock_avatar_service.go -package=mocks
+//go:generate mockgen -source=avatar_service.go -destination=mocks/mock_avatar_service.gen.go -package=mocks
 package services
 
 import (

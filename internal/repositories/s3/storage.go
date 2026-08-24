@@ -1,4 +1,4 @@
-//go:generate mockgen -source=storage.go -destination=mocks/mock_storage.go -package=mocks
+//go:generate mockgen -source=storage.go -destination=mocks/mock_storage.gen.go -package=mocks
 package s3
 
 import (
