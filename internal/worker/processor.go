@@ -70,7 +70,7 @@ func (p *ImageProcessor) ProcessAvatar(ctx context.Context, event *broker.Avatar
 	}
 
 	srcImg, ext, err := p.downloadAndDecodeImage(ctx, avatar.OriginalS3Key)
-	if err != nil {
+	if srcImg == nil || err != nil {
 		return p.failProcessing(ctx, event.AvatarID, err)
 	}
 

@@ -8,9 +8,12 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/KalessinD/gophprofile/internal/broker"
+	"go.uber.org/zap"
 )
 
 type (
+	Handler func(ctx context.Context, event *broker.AvatarEvent) error
+
 	// Consumer implements broker.EventConsumer using Apache Kafka Consumer Groups.
 	Consumer struct {
 		client  sarama.ConsumerGroup
@@ -18,6 +21,7 @@ type (
 		handler func(ctx context.Context, event *broker.AvatarEvent) error
 		ready   chan bool
 		wg      sync.WaitGroup
+		logger  *zap.Logger
 	}
 
 	// consumerGroupHandler implements sarama.ConsumerGroupHandler interface.
@@ -28,7 +32,7 @@ type (
 )
 
 // NewConsumer initializes a new Kafka consumer group.
-func NewConsumer(brokers string, topic string, groupID string) (*Consumer, error) {
+func NewConsumer(brokers string, topic string, groupID string, logger *zap.Logger) (*Consumer, error) {
 	config := sarama.NewConfig()
 	config.Consumer.Group.Rebalance.GroupStrategies = append(config.Consumer.Group.Rebalance.GroupStrategies, sarama.NewBalanceStrategyRoundRobin())
 	config.Version = sarama.DefaultVersion
@@ -42,12 +46,14 @@ func NewConsumer(brokers string, topic string, groupID string) (*Consumer, error
 		client: client,
 		topic:  topic,
 		ready:  make(chan bool),
+		logger: logger,
 	}, nil
 }
 
 // ConsumeAvatarEvents starts consuming messages from the Kafka topic in a background goroutine.
-func (c *Consumer) ConsumeAvatarEvents(ctx context.Context, handler func(ctx context.Context, event *broker.AvatarEvent) error) {
+func (c *Consumer) ConsumeAvatarEvents(ctx context.Context, handler Handler) {
 	c.handler = handler
+	log := c.logger.Sugar()
 
 	c.wg.Go(func() {
 		for {
@@ -55,13 +61,9 @@ func (c *Consumer) ConsumeAvatarEvents(ctx context.Context, handler func(ctx con
 			case <-ctx.Done():
 				return
 			default:
-				// Consume blocks until the session is invalidated or context cancels.
 				if err := c.client.Consume(ctx, []string{c.topic}, &consumerGroupHandler{handler: c.handler, ready: c.ready}); err != nil {
-					// Should log error here: log.Error("kafka consumer error", zap.Error(err))
-					_ = err
+					log.Errorf("Kafka consume error: %v\n", err)
 				}
-
-				// Check if context was canceled, signaling we should exit
 				if ctx.Err() != nil {
 					return
 				}

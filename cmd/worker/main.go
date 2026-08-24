@@ -54,7 +54,7 @@ func run() error {
 		return fmt.Errorf("failed to initialize s3 storage: %w", err)
 	}
 
-	kafkaConsumer, err := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.Topic, cfg.Kafka.GroupID)
+	kafkaConsumer, err := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.Topic, cfg.Kafka.GroupID, zapLogger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize kafka consumer: %w", err)
 	}
