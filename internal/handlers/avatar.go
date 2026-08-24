@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/middleware"
@@ -18,8 +16,11 @@ import (
 )
 
 const (
-	MaxAvatarSizeBytes     = 10 * 1024 * 1024
-	AllowedImageExtensions = ".jpg,.jpeg,.png,.webp"
+	MaxAvatarSizeBytes = 10 * 1024 * 1024
+
+	MIMEImageJPEG = "image/jpeg"
+	MIMEImagePNG  = "image/png"
+	MIMEImageWebP = "image/webp"
 
 	msgInternalServer       = `{"error": "internal server error"}`
 	msgMissingFile          = `{"error": "failed to parse multipart form", "details": "missing file in request"}`
@@ -27,16 +28,38 @@ const (
 	msgAvatarNotFound       = `{"error": "avatar not found"}`
 	msgAccessForbidden      = `{"error": "you can only delete your own avatars"}`
 	msgFailedReadFileHeader = `{"error": "failed to read file header"}`
-	msgInvalidFileFormat    = `{"error": "invalid image format", "detected_mime": "%s"}`
+	msgInvalidFileFormat    = `{"error": "invalid image format", "details": "supported formats: jpeg, png, webp"}`
 )
 
 var (
 	ErrAvatarSizeExceeded  = errors.New("file size exceeds 10 MB limit")
 	ErrAvatarInvalidFormat = errors.New("invalid image format, allowed: jpg, png, webp")
+
+	allowedImageMIMETypes = map[string]struct{}{
+		MIMEImageJPEG: {},
+		MIMEImagePNG:  {},
+		MIMEImageWebP: {},
+	}
 )
 
-type AvatarHandler struct {
-	service *services.AvatarService
+type (
+	AvatarHandler struct {
+		service *services.AvatarService
+	}
+
+	// avatarSizeReader is a custom io.Reader that tracks the number of bytes read
+	// and updates the FileSize field of the associated Avatar struct.
+	avatarSizeReader struct {
+		reader io.Reader
+		avatar *models.Avatar
+	}
+)
+
+// Read implements io.Reader. It reads from the underlying reader and accumulates the byte count.
+func (sr *avatarSizeReader) Read(p []byte) (int, error) {
+	bytesRead, err := sr.reader.Read(p)
+	sr.avatar.FileSize += int64(bytesRead)
+	return bytesRead, err
 }
 
 func NewAvatarHandler(service *services.AvatarService) *AvatarHandler {
@@ -68,8 +91,8 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	detectedMIME := http.DetectContentType(sniffBytes)
-	if !strings.HasPrefix(detectedMIME, "image/") {
-		http.Error(w, fmt.Sprintf(msgInvalidFileFormat, detectedMIME), http.StatusBadRequest)
+	if _, isAllowed := allowedImageMIMETypes[detectedMIME]; !isAllowed {
+		http.Error(w, msgInvalidFileFormat, http.StatusBadRequest)
 		return
 	}
 
@@ -84,8 +107,15 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		MimeType: detectedMIME, // Trust our own sniffing over client-provided Content-Type
 	}
 
+	// Wrap the reader to automatically calculate and populate the exact FileSize
+	// during the S3 upload process inside the service layer.
+	sizeTrackingReader := &avatarSizeReader{
+		reader: safeReader,
+		avatar: newAvatar,
+	}
+
 	ctx := r.Context()
-	err = h.service.CreateAvatar(ctx, newAvatar, safeReader)
+	err = h.service.CreateAvatar(ctx, newAvatar, sizeTrackingReader)
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
@@ -267,8 +297,8 @@ func (h *AvatarHandler) DeleteUserAvatar(w http.ResponseWriter, r *http.Request)
 	}
 
 	for _, avatar := range avatars {
-		if deleteErr := h.service.SoftDeleteAvatar(r.Context(), avatar.ID, userID); deleteErr != nil {
-			logger.Errorf("can't delete the avatar %s for user %s: %v", avatar.ID, userID, err)
+		if deleteErr := h.service.SoftDeleteAvatar(ctx, avatar.ID, userID); deleteErr != nil {
+			logger.Errorf("can't delete the avatar %s for user %s: %v", avatar.ID, userID, deleteErr)
 		}
 	}
 

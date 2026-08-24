@@ -26,8 +26,10 @@ type (
 
 	// consumerGroupHandler implements sarama.ConsumerGroupHandler interface.
 	consumerGroupHandler struct {
-		handler func(ctx context.Context, event *broker.AvatarEvent) error
-		ready   chan bool
+		handler   Handler
+		ready     chan bool
+		readyOnce sync.Once
+		logger    *zap.Logger
 	}
 )
 
@@ -61,7 +63,12 @@ func (c *Consumer) ConsumeAvatarEvents(ctx context.Context, handler Handler) {
 			case <-ctx.Done():
 				return
 			default:
-				if err := c.client.Consume(ctx, []string{c.topic}, &consumerGroupHandler{handler: c.handler, ready: c.ready}); err != nil {
+				group := &consumerGroupHandler{
+					handler: c.handler,
+					ready:   c.ready,
+					logger:  c.logger,
+				}
+				if err := c.client.Consume(ctx, []string{c.topic}, group); err != nil {
 					log.Errorf("Kafka consume error: %v\n", err)
 				}
 				if ctx.Err() != nil {
@@ -83,7 +90,9 @@ func (c *Consumer) Close() error {
 
 // Setup is called when a new session starts and is ready to consume messages.
 func (h *consumerGroupHandler) Setup(sarama.ConsumerGroupSession) error {
-	close(h.ready)
+	h.readyOnce.Do(func() {
+		close(h.ready)
+	})
 	return nil
 }
 
@@ -105,20 +114,15 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 
 			var event broker.AvatarEvent
 			if err := json.Unmarshal(msg.Value, &event); err != nil {
-				// In a real app, log error here: log.Error("failed to unmarshal kafka message", zap.Error(err))
+				h.logger.Error("failed to unmarshal kafka message", zap.Error(err))
 				session.MarkMessage(msg, "")
 				continue
 			}
 
 			if err := h.handler(session.Context(), &event); err != nil {
-				// In a real app, log error here: log.Error("failed to process avatar event", zap.Error(err))
-				_ = err
+				h.logger.Error("failed to process avatar event", zap.Error(err))
 			}
 
-			// TODO: In the future, implement retry logic with a counter wrapper (e.g., {job: ..., counter: 1}).
-			// If the counter exceeds the limit, log and discard (or route to DLQ).
-			// For now, we always commit the offset (Variant B) and rely on the handler
-			// to set the avatar status to "error" in the database if processing fails.
 			session.MarkMessage(msg, "")
 		}
 	}

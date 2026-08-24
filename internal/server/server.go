@@ -126,25 +126,20 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 	avatarService := services.NewAvatarService(avatarRepo, fileStorage, kafkaProducer, cfg.S3.Bucket)
 	avatarHandler := handlers.NewAvatarHandler(avatarService)
 
-	// API V1 Routes: User-ID is required
+	// API V1 Routes
 	router.Route("/api/v1", func(r chi.Router) {
-		r.Use(mw.UserIDMiddleware)
+		// Routes requiring User-ID header
+		r.Group(func(r chi.Router) {
+			r.Use(mw.UserIDMiddleware)
 
-		// Avatar routes
-		r.Post("/avatars", avatarHandler.UploadAvatar)
-		r.Delete("/avatars/{avatar_id}", avatarHandler.DeleteAvatar)
+			r.Post("/avatars", avatarHandler.UploadAvatar)
+			r.Delete("/avatars/{avatar_id}", avatarHandler.DeleteAvatar)
+			r.Delete("/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
+		})
 
-		// User specific routes
-		r.Delete("/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
-	})
-
-	// API V1 Routes: Free Access
-	router.Route("/api/v1", func(r chi.Router) {
-		// Avatar routes
+		// Free Access Routes
 		r.Get("/avatars/{avatar_id}", avatarHandler.GetAvatar)
 		r.Get("/avatars/{avatar_id}/metadata", avatarHandler.GetAvatarMetadata)
-
-		// User specific routes
 		r.Get("/users/{user_id}/avatar", avatarHandler.GetUserAvatar)
 		r.Get("/users/{user_id}/avatars", avatarHandler.GetUserAvatars)
 	})
