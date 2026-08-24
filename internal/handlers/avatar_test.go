@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"go.uber.org/zap"
 )
 
 const (
@@ -43,10 +44,11 @@ func setupTestEnv(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepository
 	return ctrl, repoMock, s3Mock, prodMock, h
 }
 
-// addUserToContext injects the X-User-ID into the request context, mimicking the middleware.
+// addUserAndLoggerToContext injects the X-User-ID into the request context, mimicking the middleware.
 // nolint: unparam
-func addUserToContext(req *http.Request, userID string) *http.Request {
+func addUserAndLoggerToContext(req *http.Request, userID string) *http.Request {
 	ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+	ctx = context.WithValue(ctx, middleware.LoggerKey, zap.NewNop())
 	return req.WithContext(ctx)
 }
 
@@ -94,7 +96,7 @@ func TestUploadAvatar_Success(t *testing.T) {
 	// Fake JPEG header bytes to pass http.DetectContentType validation
 	fakeJPEGHeader := []byte("\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00")
 	req := newMultipartRequest(t, "image.jpg", fakeJPEGHeader)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 
 	rec := httptest.NewRecorder()
 	h.UploadAvatar(rec, req)
@@ -117,7 +119,7 @@ func TestUploadAvatar_InvalidFormat(t *testing.T) {
 
 	// Plain text will fail http.DetectContentType image check
 	req := newMultipartRequest(t, "document.pdf", []byte("fake-data"))
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 
 	rec := httptest.NewRecorder()
 	h.UploadAvatar(rec, req)
@@ -132,7 +134,7 @@ func TestUploadAvatar_MissingFile(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/avatars", strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/json") // Wrong content type, no multipart boundary
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 
 	rec := httptest.NewRecorder()
 	h.UploadAvatar(rec, req)
@@ -162,7 +164,7 @@ func TestGetAvatar_Success(t *testing.T) {
 		Return(fakeImage, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+avatarID, nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
 
 	rec := httptest.NewRecorder()
@@ -185,7 +187,7 @@ func TestGetAvatar_NotFound(t *testing.T) {
 		Return(nil, models.ErrAvatarNotFound)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+avatarID, nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
 
 	rec := httptest.NewRecorder()
@@ -210,7 +212,7 @@ func TestGetAvatar_ThumbnailNotReady(t *testing.T) {
 		Return(expectedAvatar, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+avatarID+"?size=100x100", nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
 
 	rec := httptest.NewRecorder()
@@ -236,7 +238,7 @@ func TestDeleteAvatar_Success(t *testing.T) {
 		Return(nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/avatars/"+avatarID, nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
 
 	rec := httptest.NewRecorder()
@@ -260,7 +262,7 @@ func TestDeleteAvatar_Forbidden(t *testing.T) {
 	repoMock.EXPECT().SoftDeleteAvatar(gomock.Any(), gomock.Any()).Times(0)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/avatars/"+avatarID, nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
 
 	rec := httptest.NewRecorder()
@@ -294,7 +296,7 @@ func TestGetUserAvatar_Success(t *testing.T) {
 		Return(fakeImage, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+userID+"/avatar", nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"user_id": userID})
 
 	rec := httptest.NewRecorder()
@@ -316,7 +318,7 @@ func TestGetUserAvatar_NotFound(t *testing.T) {
 		Return([]*models.Avatar{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+userID+"/avatar", nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"user_id": userID})
 
 	rec := httptest.NewRecorder()
@@ -340,7 +342,7 @@ func TestGetUserAvatars_Success(t *testing.T) {
 		}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+userID+"/avatars", nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"user_id": userID})
 
 	rec := httptest.NewRecorder()
@@ -370,7 +372,7 @@ func TestGetAvatarMetadata_Success(t *testing.T) {
 		Return(expectedAvatar, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+avatarID+"/metadata", nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
 
 	rec := httptest.NewRecorder()
@@ -397,7 +399,7 @@ func TestGetAvatarMetadata_NotFound(t *testing.T) {
 		Return(nil, models.ErrAvatarNotFound)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+avatarID+"/metadata", nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"avatar_id": avatarID})
 
 	rec := httptest.NewRecorder()
@@ -418,7 +420,7 @@ func TestDeleteUserAvatar_NotFound(t *testing.T) {
 		Return([]*models.Avatar{}, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+userID+"/avatar", nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"user_id": userID})
 
 	rec := httptest.NewRecorder()
@@ -459,7 +461,7 @@ func TestDeleteUserAvatar_Success(t *testing.T) {
 		Return(nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+userID+"/avatar", nil)
-	req = addUserToContext(req, testUserID)
+	req = addUserAndLoggerToContext(req, testUserID)
 	req = addChiURLParams(req, map[string]string{"user_id": userID})
 
 	rec := httptest.NewRecorder()

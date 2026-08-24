@@ -11,10 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-var (
-	ErrDependenciesNotFound = errors.New("dependencies are not initialized")
-	ErrThumbnailNotReady    = errors.New("requested thumbnail is not ready yet")
-)
+var ErrThumbnailNotReady = errors.New("requested thumbnail is not ready yet")
 
 type (
 	// AvatarRepository defines the contract for metadata persistence in PostgreSQL.
@@ -56,14 +53,6 @@ func NewAvatarService(repo AvatarRepository, s3 ObjectStorage, producer AvatarPr
 		producer: producer,
 		bucket:   bucket,
 	}
-}
-
-// EnsureDependencies checks if all required dependencies are initialized.
-func (s *AvatarService) EnsureDependencies() error {
-	if s.repo == nil || s.s3 == nil || s.producer == nil {
-		return ErrDependenciesNotFound
-	}
-	return nil
 }
 
 // CreateAvatar handles the business logic for creating a new avatar.

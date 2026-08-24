@@ -4,23 +4,30 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/services"
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 )
 
 const (
 	MaxAvatarSizeBytes     = 10 * 1024 * 1024
 	AllowedImageExtensions = ".jpg,.jpeg,.png,.webp"
 
-	msgInternalServer    = `{"error": "internal server error"}`
-	msgMissingFile       = `{"error": "failed to parse multipart form", "details": "missing file in request"}`
-	msgThumbnailNotReady = `{"error": "requested thumbnail is not ready yet"}`
+	msgInternalServer       = `{"error": "internal server error"}`
+	msgMissingFile          = `{"error": "failed to parse multipart form", "details": "missing file in request"}`
+	msgThumbnailNotReady    = `{"error": "requested thumbnail is not ready yet"}`
+	msgAvatarNotFound       = `{"error": "avatar not found"}`
+	msgAccessForbidden      = `{"error": "you can only delete your own avatars"}`
+	msgFailedReadFileHeader = `{"error": "failed to read file header"}`
+	msgInvalidFileFormat    = `{"error": "invalid image format", "detected_mime": "%s"}`
 )
 
 var (
@@ -46,11 +53,6 @@ Possible response codes:
 - 500 — internal server error.
 */
 func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
-		return
-	}
-
 	file, _, err := r.FormFile("image") // see web/static/index.html
 	if err != nil {
 		http.Error(w, msgMissingFile, http.StatusBadRequest)
@@ -61,13 +63,13 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	// Read first 512 bytes for real MIME type detection (prevents fake extensions)
 	sniffBytes, err := io.ReadAll(io.LimitReader(file, 512))
 	if err != nil {
-		http.Error(w, `{"error": "failed to read file header"}`, http.StatusBadRequest)
+		http.Error(w, msgFailedReadFileHeader, http.StatusBadRequest)
 		return
 	}
 
 	detectedMIME := http.DetectContentType(sniffBytes)
 	if !strings.HasPrefix(detectedMIME, "image/") {
-		http.Error(w, `{"error": "invalid image format", "detected_mime": "`+detectedMIME+`"}`, http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf(msgInvalidFileFormat, detectedMIME), http.StatusBadRequest)
 		return
 	}
 
@@ -82,16 +84,22 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 		MimeType: detectedMIME, // Trust our own sniffing over client-provided Content-Type
 	}
 
-	err = h.service.CreateAvatar(r.Context(), newAvatar, safeReader)
+	ctx := r.Context()
+	err = h.service.CreateAvatar(ctx, newAvatar, safeReader)
 	if err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
+		status, message := h.defineResponseStatusByError(err)
+
+		middleware.GetLogger(ctx).Sugar().Debugf("can't upload the avatar: %v", err)
+		http.Error(w, message, status)
+
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", common.AppJSONContentType)
 	w.WriteHeader(http.StatusCreated)
 
 	if err := json.NewEncoder(w).Encode(newAvatar); err != nil {
+		middleware.GetLogger(ctx).Sugar().Errorf("can't encode the avatar: %v", err)
 		return
 	}
 }
@@ -105,34 +113,25 @@ Possible response codes:
 - 500 — internal server error.
 */
 func (h *AvatarHandler) GetAvatar(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
-		return
-	}
-
+	ctx := r.Context()
 	avatarID := chi.URLParam(r, "avatar_id")
+	logger := middleware.GetLogger(ctx)
 	requestedSize := r.URL.Query().Get("size")
+	stream, avatar, err := h.service.GetAvatarFileStream(ctx, avatarID, requestedSize)
 
-	stream, avatar, err := h.service.GetAvatarFileStream(r.Context(), avatarID, requestedSize)
+	if err == nil && (stream == nil || avatar == nil) {
+		err = models.ErrAvatarNotFound
+	}
+
 	if err != nil {
-		if errors.Is(err, models.ErrAvatarNotFound) {
-			http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
-			return
-		}
-		if errors.Is(err, services.ErrThumbnailNotReady) {
-			http.Error(w, msgThumbnailNotReady, http.StatusNotFound)
-			return
-		}
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
+		status, message := h.defineResponseStatusByError(err)
+
+		logger.Sugar().Debugf("can't retrieve the avatar: %v", err)
+		http.Error(w, message, status)
 		return
 	}
 
-	if stream == nil || avatar == nil {
-		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
-		return
-	}
-
-	h.writeImageResponse(w, stream, avatar, avatarID)
+	h.writeImageResponse(w, stream, avatar, avatarID, logger)
 }
 
 /*
@@ -144,28 +143,24 @@ Possible response codes:
 - 500 — internal server error.
 */
 func (h *AvatarHandler) GetAvatarMetadata(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
-		return
-	}
-
+	ctx := r.Context()
 	avatarID := chi.URLParam(r, "avatar_id")
 
-	avatar, err := h.service.GetAvatarByID(r.Context(), avatarID)
+	avatar, err := h.service.GetAvatarByID(ctx, avatarID)
 	if err != nil {
-		if errors.Is(err, models.ErrAvatarNotFound) {
-			http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
-			return
-		}
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
+		status, message := h.defineResponseStatusByError(err)
+
+		middleware.GetLogger(ctx).Sugar().Debugf("can't retrieve the avatar: %v", err)
+		http.Error(w, message, status)
+
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", common.AppJSONContentType)
 	w.WriteHeader(http.StatusOK)
 
 	if err := json.NewEncoder(w).Encode(avatar); err != nil {
-		// Log error in real implementation, for now just return
+		middleware.GetLogger(ctx).Sugar().Errorf("can't encode the avatar: %v", err)
 		return
 	}
 }
@@ -180,25 +175,17 @@ Possible response codes:
 - 500 — internal server error.
 */
 func (h *AvatarHandler) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
-		return
-	}
-
+	ctx := r.Context()
 	avatarID := chi.URLParam(r, "avatar_id")
-	userID := middleware.GetUserID(r.Context())
+	userID := middleware.GetUserID(ctx)
 
-	err := h.service.SoftDeleteAvatar(r.Context(), avatarID, userID)
+	err := h.service.SoftDeleteAvatar(ctx, avatarID, userID)
 	if err != nil {
-		if errors.Is(err, models.ErrAvatarNotFound) {
-			http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
-			return
-		}
-		if errors.Is(err, models.ErrAvatarForbidden) {
-			http.Error(w, `{"error": "you can only delete your own avatars"}`, http.StatusForbidden)
-			return
-		}
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
+		status, message := h.defineResponseStatusByError(err)
+
+		middleware.GetLogger(ctx).Sugar().Debugf("can't delete user's avatar: %v", err)
+		http.Error(w, message, status)
+
 		return
 	}
 
@@ -214,33 +201,42 @@ Possible response codes:
 - 500 — internal server error.
 */
 func (h *AvatarHandler) GetUserAvatar(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
-		return
+	ctx := r.Context()
+	userID := chi.URLParam(r, "user_id")
+	avatars, err := h.service.GetAvatarsByUserID(ctx, userID)
+
+	if err == nil && len(avatars) == 0 {
+		err = models.ErrAvatarNotFound
 	}
 
-	userID := chi.URLParam(r, "user_id")
+	if err != nil {
+		status, message := h.defineResponseStatusByError(err)
 
-	avatars, err := h.service.GetAvatarsByUserID(r.Context(), userID)
-	if err != nil || len(avatars) == 0 {
-		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
+		middleware.GetLogger(ctx).Sugar().Debugf("can't get user's avatar: %v", err)
+		http.Error(w, message, status)
+
 		return
 	}
 
 	currentAvatar := avatars[0]
 	requestedSize := r.URL.Query().Get("size")
-
+	logger := middleware.GetLogger(ctx)
 	stream, avatar, err := h.service.GetAvatarFileStream(r.Context(), currentAvatar.ID, requestedSize)
-	if err != nil {
-		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
-		return
+
+	if err == nil && (stream == nil || avatar == nil) {
+		err = models.ErrAvatarNotFound
 	}
-	if stream == nil || avatar == nil {
-		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
+
+	if err != nil {
+		status, message := h.defineResponseStatusByError(err)
+
+		logger.Sugar().Debugf("can't get user's avatar: %v", err)
+		http.Error(w, message, status)
+
 		return
 	}
 
-	h.writeImageResponse(w, stream, avatar, currentAvatar.ID)
+	h.writeImageResponse(w, stream, avatar, currentAvatar.ID, logger)
 }
 
 /*
@@ -252,22 +248,27 @@ Possible response codes:
 - 500 — internal server error.
 */
 func (h *AvatarHandler) DeleteUserAvatar(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
-		return
+	ctx := r.Context()
+	userID := chi.URLParam(r, "user_id")
+	logger := middleware.GetLogger(ctx).Sugar()
+	avatars, err := h.service.GetAvatarsByUserID(ctx, userID)
+
+	if err == nil && len(avatars) == 0 {
+		err = models.ErrAvatarNotFound
 	}
 
-	userID := chi.URLParam(r, "user_id")
+	if err != nil {
+		status, message := h.defineResponseStatusByError(err)
 
-	avatars, err := h.service.GetAvatarsByUserID(r.Context(), userID)
-	if err != nil || len(avatars) == 0 {
-		http.Error(w, `{"error": "avatar not found"}`, http.StatusNotFound)
+		logger.Debugf("can't delete user's avatar: %v", err)
+		http.Error(w, message, status)
+
 		return
 	}
 
 	for _, avatar := range avatars {
 		if deleteErr := h.service.SoftDeleteAvatar(r.Context(), avatar.ID, userID); deleteErr != nil {
-			_ = deleteErr
+			logger.Errorf("can't delete the avatar %s for user %s: %v", avatar.ID, userID, err)
 		}
 	}
 
@@ -282,29 +283,30 @@ Possible response codes:
 - 500 — internal server error.
 */
 func (h *AvatarHandler) GetUserAvatars(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.EnsureDependencies(); err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
-		return
-	}
-
+	ctx := r.Context()
 	userID := chi.URLParam(r, "user_id")
-
-	avatars, err := h.service.GetAvatarsByUserID(r.Context(), userID)
+	logger := middleware.GetLogger(ctx).Sugar()
+	avatars, err := h.service.GetAvatarsByUserID(ctx, userID)
 	if err != nil {
-		http.Error(w, msgInternalServer, http.StatusInternalServerError)
+		status, message := h.defineResponseStatusByError(err)
+
+		logger.Debugf("can't get user's avatar: %v", err)
+		http.Error(w, message, status)
+
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", common.AppJSONContentType)
 	w.WriteHeader(http.StatusOK)
 
 	if err := json.NewEncoder(w).Encode(avatars); err != nil {
+		logger.Errorf("can't encode avatars: %v", err)
 		return
 	}
 }
 
 // writeImageResponse streams the image data to the HTTP response and sets appropriate headers.
-func (h *AvatarHandler) writeImageResponse(w http.ResponseWriter, stream io.ReadCloser, avatar *models.Avatar, avatarID string) {
+func (h *AvatarHandler) writeImageResponse(w http.ResponseWriter, stream io.ReadCloser, avatar *models.Avatar, avatarID string, logger *zap.Logger) {
 	defer stream.Close()
 
 	mimeType := "image/jpeg" // Default fallback according to TZ
@@ -312,13 +314,33 @@ func (h *AvatarHandler) writeImageResponse(w http.ResponseWriter, stream io.Read
 		mimeType = avatar.MimeType
 	}
 
-	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Cache-Control", "max-age=86400")
-	w.Header().Set("ETag", `"`+avatarID+`"`)
+	header := w.Header()
+
+	header.Set("Content-Type", mimeType)
+	header.Set("Cache-Control", "max-age=86400")
+	header.Set("ETag", `"`+avatarID+`"`)
 
 	if _, err := io.Copy(w, stream); err != nil {
-		// If headers are already sent, we can't return a JSON error.
-		// In a real application, this should be logged using the logger from context.
+		logger.Debug("can't write into stream", zap.Error(err))
 		return
 	}
+}
+
+func (h *AvatarHandler) defineResponseStatusByError(err error) (status int, message string) {
+	switch {
+	case errors.Is(err, models.ErrAvatarNotFound):
+		status = http.StatusNotFound
+		message = msgAvatarNotFound
+	case errors.Is(err, services.ErrThumbnailNotReady):
+		status = http.StatusNotFound
+		message = msgThumbnailNotReady
+	case errors.Is(err, models.ErrAvatarForbidden):
+		status = http.StatusForbidden
+		message = msgAccessForbidden
+	default:
+		status = http.StatusInternalServerError
+		message = msgInternalServer
+	}
+
+	return
 }

@@ -32,12 +32,6 @@ func TestNewAvatarService(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-func TestEnsureDependencies_NilRepo(t *testing.T) {
-	svc := services.NewAvatarService(nil, nil, nil, testBucket)
-	assert.Error(t, svc.EnsureDependencies())
-	assert.ErrorIs(t, svc.EnsureDependencies(), services.ErrDependenciesNotFound)
-}
-
 func TestCreateAvatar_Success(t *testing.T) {
 	ctrl, repo, s3, prod, svc := setupServiceTest(t)
 	defer ctrl.Finish()
