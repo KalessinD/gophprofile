@@ -44,7 +44,8 @@ var (
 
 type (
 	AvatarHandler struct {
-		service *services.AvatarService
+		service      *services.AvatarService
+		s3URLBuilder func(key string) string
 	}
 
 	// avatarSizeReader is a custom io.Reader that tracks the number of bytes read
@@ -62,8 +63,11 @@ func (sr *avatarSizeReader) Read(p []byte) (int, error) {
 	return bytesRead, err
 }
 
-func NewAvatarHandler(service *services.AvatarService) *AvatarHandler {
-	return &AvatarHandler{service: service}
+func NewAvatarHandler(service *services.AvatarService, s3URLBuilder func(key string) string) *AvatarHandler {
+	return &AvatarHandler{
+		service:      service,
+		s3URLBuilder: s3URLBuilder,
+	}
 }
 
 /*
@@ -97,29 +101,28 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Wrap file in LimitReader to strictly enforce the 10MB limit (prevents Content-Length spoofing)
-	// MultiReader prepends the bytes we already read, so the service gets the full uncorrupted file
 	safeReader := io.LimitReader(io.MultiReader(bytes.NewReader(sniffBytes), file), MaxAvatarSizeBytes)
 
 	userID := middleware.GetUserID(r.Context())
 
 	newAvatar := &models.Avatar{
 		UserID:   userID,
-		MimeType: detectedMIME, // Trust our own sniffing over client-provided Content-Type
+		MimeType: detectedMIME,
 	}
 
-	// Wrap the reader to automatically calculate and populate the exact FileSize
-	// during the S3 upload process inside the service layer.
 	sizeTrackingReader := &avatarSizeReader{
 		reader: safeReader,
 		avatar: newAvatar,
 	}
 
 	ctx := r.Context()
+	logger := middleware.GetLogger(ctx).Sugar()
+
 	err = h.service.CreateAvatar(ctx, newAvatar, sizeTrackingReader)
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
-		middleware.GetLogger(ctx).Sugar().Debugf("can't upload the avatar: %v", err)
+		logger.Debugf("can't upload the avatar: %v", err)
 		http.Error(w, message, status)
 
 		return
@@ -128,8 +131,9 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", common.AppJSONContentType)
 	w.WriteHeader(http.StatusCreated)
 
-	if err := json.NewEncoder(w).Encode(newAvatar); err != nil {
-		middleware.GetLogger(ctx).Sugar().Errorf("can't encode the avatar: %v", err)
+	response := NewUploadResponse(newAvatar, h.s3URLBuilder(newAvatar.OriginalS3Key))
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logger.Errorf("can't encode the avatar: %v", err)
 		return
 	}
 }
@@ -179,17 +183,24 @@ func (h *AvatarHandler) GetAvatarMetadata(w http.ResponseWriter, r *http.Request
 	avatar, err := h.service.GetAvatarByID(ctx, avatarID)
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
-
 		middleware.GetLogger(ctx).Sugar().Debugf("can't retrieve the avatar: %v", err)
 		http.Error(w, message, status)
-
 		return
 	}
 
 	w.Header().Set("Content-Type", common.AppJSONContentType)
 	w.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(w).Encode(avatar); err != nil {
+	var thumb100URL, thumb300URL string
+	if avatar.Thumbnail100S3Key != nil {
+		thumb100URL = h.s3URLBuilder(*avatar.Thumbnail100S3Key)
+	}
+	if avatar.Thumbnail300S3Key != nil {
+		thumb300URL = h.s3URLBuilder(*avatar.Thumbnail300S3Key)
+	}
+
+	response := NewMetadataResponse(avatar, thumb100URL, thumb300URL)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		middleware.GetLogger(ctx).Sugar().Errorf("can't encode the avatar: %v", err)
 		return
 	}

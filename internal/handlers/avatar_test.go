@@ -39,7 +39,10 @@ func setupTestEnv(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepository
 	prodMock := mocks.NewMockAvatarProducer(ctrl)
 
 	svc := services.NewAvatarService(repoMock, s3Mock, prodMock, testBucket)
-	h := handlers.NewAvatarHandler(svc)
+
+	// Mock URL builder for tests
+	mockURLBuilder := func(key string) string { return "http://localhost/" + key }
+	h := handlers.NewAvatarHandler(svc, mockURLBuilder)
 
 	return ctrl, repoMock, s3Mock, prodMock, h
 }
@@ -103,14 +106,14 @@ func TestUploadAvatar_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	var responseAvatar models.Avatar
+	var responseAvatar models.UploadResponse
 	err := json.NewDecoder(rec.Body).Decode(&responseAvatar)
 	require.NoError(t, err)
 
 	assert.Equal(t, testUserID, responseAvatar.UserID)
 	assert.Equal(t, models.AvatarStatusProcessing, responseAvatar.Status)
 	assert.NotEmpty(t, responseAvatar.ID)
-	assert.Contains(t, responseAvatar.OriginalS3Key, "avatars/"+testUserID+"/")
+	assert.Contains(t, responseAvatar.URL, "http://localhost/avatars/"+testUserID+"/")
 }
 
 func TestUploadAvatar_InvalidFormat(t *testing.T) {
@@ -381,11 +384,11 @@ func TestGetAvatarMetadata_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
-	var responseAvatar models.Avatar
+	var responseAvatar models.MetadataResponse // Используем DTO
 	err := json.NewDecoder(rec.Body).Decode(&responseAvatar)
 	require.NoError(t, err)
 	assert.Equal(t, avatarID, responseAvatar.ID)
-	assert.Equal(t, models.AvatarStatusReady, responseAvatar.Status)
+	assert.Len(t, responseAvatar.Thumbnails, 0) // В тесте миниатюры nil
 }
 
 func TestGetAvatarMetadata_NotFound(t *testing.T) {
