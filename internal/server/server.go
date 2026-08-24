@@ -128,7 +128,7 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 
 	// API V1 Роуты
 	router.Route("/api/v1", func(r chi.Router) {
-		router.Use(mw.UserIDMiddleware)
+		r.Use(mw.UserIDMiddleware)
 
 		// Avatar routes
 		r.Post("/avatars", avatarHandler.UploadAvatar)
@@ -154,13 +154,15 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 		return nil, fmt.Errorf("getting working directory: %w", err)
 	}
 
-	staticIndexPath := filepath.Join(workDir, "web", "static", "index.html")
-	if _, statErr := os.Stat(staticIndexPath); statErr == nil {
-		router.HandleFunc("/web/{path:[a-zA-Z0-9\\-]+}", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			http.ServeFile(w, r, staticIndexPath)
-		})
+	staticIndexPath := filepath.Join(workDir, cfg.WebStaticDir, "index.html")
+	if _, statErr := os.Stat(staticIndexPath); statErr != nil {
+		return nil, fmt.Errorf("can't read index.html file in %s: %w", cfg.WebStaticDir, statErr)
 	}
+
+	router.HandleFunc("/web/upload", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		http.ServeFile(w, r, staticIndexPath)
+	})
 
 	return router, nil
 }

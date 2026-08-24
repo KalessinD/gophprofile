@@ -2,7 +2,7 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
-COPY --parents --from=current /cmd/worker/ /internal/ /migrations go.mod go.sum .golangci.json README.md ./
+COPY --parents --from=current /cmd/worker/ /internal/ go.mod go.sum .golangci.json README.md ./
 
 RUN go mod download && \
     go build -o /worker ./cmd/worker

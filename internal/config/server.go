@@ -19,6 +19,7 @@ const (
 	DefaultIdleTimeout              time.Duration = 30 * time.Second
 	DefaultGracefullShutdownTimeout time.Duration = 5 * time.Second
 	DefaultPsqlDSN                  string        = ""
+	DefaultWebStaticDir                           = "./web/static/"
 	DefaultCompressionThreshold     int           = 1024
 	DefaultApplyMigrations          bool          = false
 )
@@ -54,6 +55,7 @@ type (
 		IdleTimeout              time.Duration
 		GracefullShutdownTimeout time.Duration
 		PsqlDSN                  string
+		WebStaticDir             string
 		TLSConfig                *TLSConfig
 		CompressionThreshold     int
 		ApplyMigrations          bool
@@ -87,6 +89,7 @@ func GetDefaultServerConfig() *ServerConfig {
 		IdleTimeout:              DefaultIdleTimeout,
 		GracefullShutdownTimeout: DefaultGracefullShutdownTimeout,
 		PsqlDSN:                  DefaultPsqlDSN,
+		WebStaticDir:             DefaultWebStaticDir,
 		CompressionThreshold:     DefaultCompressionThreshold,
 		ApplyMigrations:          DefaultApplyMigrations,
 		S3:                       getDefaultS3(),
