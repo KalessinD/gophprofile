@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	avatarTable = `"` + PsqlGophkeeperSchema + `".avatars"`
+	avatarTable = `"` + PsqlGophkeeperSchema + `"."avatars"`
 
 	QueryInsertAvatar = `
 		INSERT INTO ` + avatarTable + ` (user_id, original_s3_key, status, mime_type, file_size)
