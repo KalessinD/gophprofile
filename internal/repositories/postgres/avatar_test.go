@@ -211,7 +211,7 @@ func TestSQLStorage_HardDeleteAvatar(t *testing.T) {
 	storage := postgres.NewSQLStorage(db)
 
 	// Escaping regex special characters (. and $) for strict sqlmock matching
-	expectedQuery := `DELETE FROM "gophprofile"\.avatars" WHERE id = \$1`
+	expectedQuery := `DELETE FROM "gophprofile"."avatars" WHERE id = \$1`
 
 	t.Run("successful hard delete", func(t *testing.T) {
 		mock.ExpectBegin()
