@@ -1,0 +1,7 @@
+{
+    "address": "localhost:8082",
+    "database_dsn": "postgres://gophprofile:secret@db:5432/yp?sslmode=disable",
+    "tls-cert": "certs/server.crt",
+    "tls-key": "certs/server.key",
+    "apply_migrations": false
+}

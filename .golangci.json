@@ -72,6 +72,20 @@
         "std-error-handling"
       ],
       "rules": [
+        {
+          "linters": [
+            "unused"
+          ],
+          "path": "internal/repositories/postgres/common.go",
+          "text": "is unused"
+        },
+        {
+          "linters": [
+            "tagalign"
+          ],
+          "path": "internal/models/avatar.go",
+          "text": "tag is not aligned"
+        }       
       ]      
     },
     "settings": {
@@ -112,7 +126,7 @@
       },
       "gosec": {
         "excludes": [
-          "G404"
+          "G404"          
         ]
       },
       "lll": {

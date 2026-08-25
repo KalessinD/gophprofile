@@ -1,0 +1,212 @@
+services:
+  db:
+    container_name: gophprofile-postgres
+    build:
+      context: ./docker/db
+      dockerfile: Dockerfile
+    ports:
+      - "6432:5432"
+    environment:
+      POSTGRES_USER: gophprofile
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: gophprofile
+      PGDATA: /var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h db -U gophprofile -d gophprofile"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - postgres_data:/tmp/postgresql_gophprofile_data
+      - ./migrations/000001_init_project.up.sql:/docker-entrypoint-initdb.d/000001_init_project.up.sql:ro
+    networks:
+      - gophprofile
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: gophprofile-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # KRaft mode settings (without Zookeeper)
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - gophprofile
+
+  server:
+    container_name: gophprofile-server
+    build:
+      context: ./docker/gophprofile-server
+      additional_contexts:
+        current: ./
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      - "${GK_PORT:-8080}:8080"
+    environment:
+      DATABASE_DSN: postgres://gophprofile:secret@db:5432/gophprofile?sslmode=disable
+      ADDRESS: 0.0.0.0:8080
+      GODEBUG: netdns=go
+      S3_ENDPOINT: minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: gophprofile
+      S3_USE_SSL: "false"
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: avatar-processing
+    networks:
+      - gophprofile
+
+  worker:
+    container_name: gophprofile-worker
+    build:
+      context: ./docker/gophprofile-worker
+      additional_contexts:
+        current: ./
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    environment:
+      DATABASE_DSN: postgres://gophprofile:secret@db:5432/gophprofile?sslmode=disable
+      GODEBUG: netdns=go
+      S3_ENDPOINT: minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: gophprofile
+      S3_USE_SSL: "false"
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: avatar-processing
+    networks:
+      - gophprofile
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: gophprofile-minio
+    ports:
+      - "9000:9000" # API
+      - "9001:9001" # Web UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --address ":9000" --console-address ":9001"
+    volumes:
+      - /tmp/minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - gophprofile
+
+  minio-setup:
+    image: minio/mc:latest
+    container_name: gophprofile-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command:
+    - -c
+    - |
+      set -e
+
+      ACCESS_KEY="$${S3_ACCESS_KEY:-gk_server_access_key}"
+      SECRET_KEY="$${S3_SECRET_KEY:-G0phK33p3rS3rv3r!}"
+
+      mc alias set myminio http://minio:9000 minioadmin minioadmin
+
+      mc mb myminio/gophprofile --ignore-existing
+
+      mc admin user add myminio "$$ACCESS_KEY" "$$SECRET_KEY" || true
+
+      cat <<'EOF' > /tmp/policy.json
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetBucketLocation",
+              "s3:ListBucket"
+            ],
+            "Resource": [
+              "arn:aws:s3:::gophprofile"
+            ]
+          },
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetObject",
+              "s3:PutObject",
+              "s3:DeleteObject"
+            ],
+            "Resource": [
+              "arn:aws:s3:::gophprofile/*"
+            ]
+          }
+        ]
+      }
+      EOF
+
+      mc admin policy create myminio gophprofile-policy /tmp/policy.json || \
+        mc admin policy rm myminio gophprofile-policy && \
+        mc admin policy create myminio gophprofile-policy /tmp/policy.json
+
+      mc admin policy attach myminio gophprofile-policy --user "$$ACCESS_KEY"
+
+      echo "S3 user and policy configured successfully"
+    networks:
+    - gophprofile
+
+volumes:
+  postgres_data:
+  kafka_data:
+
+networks:
+  gophprofile:
+    driver: bridge

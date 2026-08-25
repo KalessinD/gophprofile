@@ -1,0 +1,133 @@
+name: gophprofile
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - 'v*'
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    container: golang:1.26.5
+
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gophprofile
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            Makefile
+
+      - name: Installing Golang tools
+        run: |
+          apt-get update && \
+          DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends --no-install-suggests ca-certificates curl gcc g++ make
+          curl -sSfL https://golangci-lint.run/install.sh | sh -s v2.11.4
+          mkdir -p $(go env GOPATH)/bin
+          mv bin/* $(go env GOPATH)/bin
+
+      - name: Run Lint
+        run: |
+          make lint
+
+      - name: Prepare binaries
+        run: |
+          (cd cmd/server && go build -buildvcs=false -o server)
+          (cd cmd/worker && go build -buildvcs=false -o worker)
+
+      - name: Project Tests
+        run: |
+          make test-go
+
+      - name: E2E Tests
+        run: |
+          make test-e2e
+
+      - name: Generate Coverage Report for GitHub
+        if: always()
+        run: |
+          echo "## 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          make coverage >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: /tmp/gophprofile-coverage.out
+          fail_ci_if_error: false
+          flags: unittests
+          verbose: true
+        continue-on-error: true
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    runs-on: ubuntu-latest
+    container: golang:1.26.5
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            artifact_name: gophprofile-linux-amd64
+          - goos: windows
+            goarch: amd64
+            artifact_name: gophprofile-windows-amd64.exe
+          - goos: darwin
+            goarch: arm64
+            artifact_name: gophprofile-macos-arm64
+    steps:
+
+      - name: Install dependencies
+        run: |
+          apt-get update && \
+          DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends --no-install-suggests \
+          gcc g++ make
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          APP_VERSION=${{ github.ref_name }} APP_NAME=${{ matrix.artifact_name }} make build
+
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          fetch-depth: 0
+          name: Release ${{ github.ref_name }}
+          files: ./bin/${{ matrix.artifact_name }}
