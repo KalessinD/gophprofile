@@ -215,28 +215,32 @@ services:
     networks:
       - gophprofile
 
-  loki:
-    image: grafana/loki:latest
-    container_name: gophprofile-loki
+  opensearch:
+    image: opensearchproject/opensearch:latest
+    container_name: gophprofile-opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
-      - "3100:3100"
+      - "9200:9200"
+      - "9600:9600" # Performance Analyzer
     volumes:
-      - loki_data:/loki
-      - ./docker/loki/config.yaml:/etc/loki/local-config.yaml
-    command: -config.file=/etc/loki/local-config.yaml
+      - opensearch_data:/usr/share/opensearch/data
     networks:
       - gophprofile
 
-  promtail:
-    image: grafana/promtail:latest
-    container_name: gophprofile-promtail
+  fluent-bit:
+    image: fluent/fluent-bit:latest
+    container_name: gophprofile-fluent-bit
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - promtail_positions:/tmp
-      - ./docker/promtail/config.yaml:/etc/promtail/config.yaml
-    command: -config.file=/etc/promtail/config.yaml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log/containers:/var/log/containers:ro
+      - ./docker/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./docker/fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - fluent_bit_state:/var/log
     depends_on:
-      - loki
+      - opensearch
     networks:
       - gophprofile
 
@@ -267,15 +271,15 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
     depends_on:
       - prometheus
-      - loki
+      - opensearch
     networks:
       - gophprofile
 
 volumes:
   postgres_data:
   kafka_data:
-  loki_data:
-  promtail_positions:
+  opensearch_data:
+  fluent_bit_state:
   prometheus_data:
   grafana_data:
 
