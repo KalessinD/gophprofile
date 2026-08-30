@@ -10,7 +10,13 @@ import (
 	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
+
+const tracerName = "gophprofile-s3"
 
 type (
 	// Storage implements ObjectStorageInterface using MinIO SDK.
@@ -55,8 +61,18 @@ func NewS3Storage(ctx context.Context, cfg *config.S3, log logger.Logger) (*Stor
 
 // UploadObject streams an object from reader directly to the S3 bucket.
 func (s *Storage) UploadObject(ctx context.Context, bucket string, objectKey string, reader io.Reader) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "s3.upload_object")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("s3.bucket", bucket),
+		attribute.String("s3.key", objectKey),
+	)
+
 	_, err := s.client.PutObject(ctx, bucket, objectKey, reader, -1, minio.PutObjectOptions{})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to upload object to S3: %w", err)
 	}
 
@@ -67,17 +83,38 @@ func (s *Storage) UploadObject(ctx context.Context, bucket string, objectKey str
 
 // GetObject retrieves an object from S3.
 func (s *Storage) GetObject(ctx context.Context, bucket string, objectKey string) (io.ReadCloser, error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "s3.get_object")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("s3.bucket", bucket),
+		attribute.String("s3.key", objectKey),
+	)
+
 	obj, err := s.client.GetObject(ctx, bucket, objectKey, minio.GetObjectOptions{})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("failed to get object from S3: %w", err)
 	}
+
 	return obj, nil
 }
 
 // DeleteObject removes an object from S3.
 func (s *Storage) DeleteObject(ctx context.Context, bucket string, objectKey string) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "s3.delete_object")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("s3.bucket", bucket),
+		attribute.String("s3.key", objectKey),
+	)
+
 	err := s.client.RemoveObject(ctx, bucket, objectKey, minio.RemoveObjectOptions{})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to delete object from S3: %w", err)
 	}
 

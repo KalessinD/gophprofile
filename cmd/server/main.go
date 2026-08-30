@@ -14,6 +14,7 @@ import (
 
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	srv "github.com/KalessinD/gophprofile/internal/server"
 	"github.com/KalessinD/gophprofile/internal/telemetry"
 
@@ -45,7 +46,7 @@ func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
 	}
 	defer otelShutdown()
 
-	pgdb, err := databaseWorks(ctx, cfg, appLogger)
+	pgdb, err := databaseWorks(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -102,12 +103,12 @@ func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
 	return nil
 }
 
-func databaseWorks(ctx context.Context, cfg *config.ServerConfig, appLogger logger.Logger) (*sql.DB, error) {
+func databaseWorks(ctx context.Context, cfg *config.ServerConfig) (*sql.DB, error) {
 	if cfg.PsqlDSN == "" {
 		return nil, errors.New("database_dsn is empty")
 	}
 
-	pgdb, err := srv.PsqlConnect(ctx, cfg.PsqlDSN, appLogger)
+	pgdb, err := postgres.Connect(ctx, cfg.PsqlDSN)
 	if err != nil {
 		return nil, err
 	}

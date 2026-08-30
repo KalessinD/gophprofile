@@ -13,7 +13,6 @@ import (
 	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3"
-	srv "github.com/KalessinD/gophprofile/internal/server"
 	"github.com/KalessinD/gophprofile/internal/telemetry"
 	"github.com/KalessinD/gophprofile/internal/worker"
 
@@ -50,7 +49,7 @@ func run() error {
 	}
 	defer otelShutdown()
 
-	pgdb, err := srv.PsqlConnect(notifyCtx, cfg.PsqlDSN, appLogger)
+	pgdb, err := postgres.Connect(notifyCtx, cfg.PsqlDSN)
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/KalessinD/gophprofile/internal/broker/kafka"
 	"github.com/KalessinD/gophprofile/internal/config"
@@ -17,86 +16,12 @@ import (
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3"
 	"github.com/KalessinD/gophprofile/internal/services"
-	"github.com/exaring/otelpgx"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/go-chi/cors"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
-
-const otelPgxDriverName = "otelpgx"
-
-// init registers a custom database/sql driver that wraps pgx with OpenTelemetry tracing.
-func init() {
-	sql.Register(otelPgxDriverName, stdlib.GetDefaultDriver())
-}
-
-var (
-	maxConnectionRetries           = 3
-	waitIntervalBetweenConnections = time.Second * 3
-)
-
-func PsqlConnect(ctx context.Context, dsn string, log logger.Logger) (*sql.DB, error) {
-	pgxConfig, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		log.Error("Failed to parse DSN", "error", err)
-		return nil, fmt.Errorf("parsing DSN: %w", err)
-	}
-
-	// Inject OTel tracer into pgx config for automatic SQL query tracing
-	pgxConfig.Tracer = otelpgx.NewTracer()
-
-	db, err := sql.Open(otelPgxDriverName, stdlib.RegisterConnConfig(pgxConfig))
-	if err != nil {
-		log.Error("Failed to open db connection", "error", err)
-		return nil, fmt.Errorf("opening db connection: %w", err)
-	}
-
-	var lastErr error
-
-	for attempt := range maxConnectionRetries {
-		lastErr = db.PingContext(ctx)
-		if lastErr == nil {
-			log.Info("Successfully connected to PostgreSQL", "attempt", attempt)
-			break
-		}
-
-		log.Warn("Failed to connect to PostgreSQL, retrying...",
-			"attempt", attempt,
-			"max_retries", maxConnectionRetries,
-			"interval", waitIntervalBetweenConnections,
-			"error", lastErr,
-		)
-
-		if attempt < maxConnectionRetries {
-			select {
-			case <-ctx.Done():
-				log.Warn("Database connection canceled by context during retry")
-				db.Close()
-				return nil, ctx.Err()
-			case <-time.After(waitIntervalBetweenConnections):
-				// Время вышло, идем на следующий круг
-			}
-		}
-	}
-
-	if lastErr != nil {
-		log.Error("Failed to connect to PostgreSQL after all retries", "error", lastErr)
-		db.Close()
-		return nil, fmt.Errorf("db connection failed after %d retries: %w", maxConnectionRetries, lastErr)
-	}
-
-	go func() {
-		<-ctx.Done()
-		log.Info("Closing database connection due to context cancellation")
-		db.Close()
-	}()
-
-	return db, nil
-}
 
 func GetBaseRouter(cfg *config.ServerConfig, log logger.Logger) *chi.Mux {
 	router := chi.NewRouter()
