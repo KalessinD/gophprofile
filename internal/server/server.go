@@ -17,12 +17,22 @@ import (
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3"
 	"github.com/KalessinD/gophprofile/internal/services"
+	"github.com/exaring/otelpgx"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/go-chi/cors"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
+
+const otelPgxDriverName = "otelpgx"
+
+// init registers a custom database/sql driver that wraps pgx with OpenTelemetry tracing.
+func init() {
+	sql.Register(otelPgxDriverName, stdlib.GetDefaultDriver())
+}
 
 var (
 	maxConnectionRetries           = 3
@@ -30,10 +40,19 @@ var (
 )
 
 func PsqlConnect(ctx context.Context, dsn string, log logger.Logger) (*sql.DB, error) {
-	db, err := sql.Open("pgx", dsn)
+	pgxConfig, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		log.Error("Failed to parse DSN", "error", err)
 		return nil, fmt.Errorf("parsing DSN: %w", err)
+	}
+
+	// Inject OTel tracer into pgx config for automatic SQL query tracing
+	pgxConfig.Tracer = otelpgx.NewTracer()
+
+	db, err := sql.Open(otelPgxDriverName, stdlib.RegisterConnConfig(pgxConfig))
+	if err != nil {
+		log.Error("Failed to open db connection", "error", err)
+		return nil, fmt.Errorf("opening db connection: %w", err)
 	}
 
 	var lastErr error
