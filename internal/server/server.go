@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/go-chi/cors"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 var (
@@ -173,5 +174,8 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log logger.Logger,
 		http.ServeFile(w, r, staticIndexPath)
 	})
 
-	return router, nil
+	// Wrap the Chi router with OTel HTTP middleware for automatic tracing of all requests
+	otelRouter := otelhttp.NewHandler(router, "gophprofile-http")
+
+	return otelRouter, nil
 }
