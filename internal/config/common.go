@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"strings"
+	"time"
 )
 
 const (
@@ -17,8 +18,11 @@ const (
 	DefaultKafkaGroupID string = "gophprofile-worker-group"
 
 	DefaultLoggerType string = "slog" // zap is possible too
+	DefaultPsqlDSN    string = ""
 
-	DefaultPsqlDSN string = ""
+	DefaultOTELExporterOTLPEndpoint string = "jaeger:4317"
+
+	DefaultGracefullShutdownTimeout time.Duration = 5 * time.Second
 )
 
 var validLogTypes = map[string]struct{}{

@@ -7,40 +7,46 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 type (
 	// workerConfigJSON is used only for JSON file unmarshaling
 	workerConfigJSON struct {
-		S3Address    string `json:"s3_address,omitempty"`
-		S3UseSSL     bool   `json:"s3_use_ssl,omitempty"`
-		S3AccessKey  string `json:"s3_access_key,omitempty"`
-		S3Secretkey  string `json:"s3_secretkey,omitempty"`
-		S3Bucket     string `json:"s3_bucket,omitempty"`
-		DatabaseDSN  string `json:"database_dsn,omitempty"`
-		KafkaBrokers string `json:"kafka_brokers,omitempty"`
-		KafkaTopic   string `json:"kafka_topic,omitempty"`
-		KafkaGroupID string `json:"kafka_group_id,omitempty"`
-		LoggerType   string `json:"logger_type"`
+		S3Address                string `json:"s3_address,omitempty"`
+		S3UseSSL                 bool   `json:"s3_use_ssl,omitempty"`
+		S3AccessKey              string `json:"s3_access_key,omitempty"`
+		S3Secretkey              string `json:"s3_secretkey,omitempty"`
+		S3Bucket                 string `json:"s3_bucket,omitempty"`
+		DatabaseDSN              string `json:"database_dsn,omitempty"`
+		KafkaBrokers             string `json:"kafka_brokers,omitempty"`
+		KafkaTopic               string `json:"kafka_topic,omitempty"`
+		KafkaGroupID             string `json:"kafka_group_id,omitempty"`
+		LoggerType               string `json:"logger_type"`
+		OTELExporterOTLPEndpoint string `json:"otel_exporter_otlp_endpoint,omitempty"`
 	}
 
 	// Worker configuration struct
 	WorkerConfig struct {
-		LoggerType           string
-		PsqlDSN              string
-		CompressionThreshold int
-		S3                   *S3
-		Kafka                *Kafka
+		LoggerType               string
+		PsqlDSN                  string
+		CompressionThreshold     int
+		S3                       *S3
+		Kafka                    *Kafka
+		GracefullShutdownTimeout time.Duration
+		OTELExporterOTLPEndpoint string
 	}
 )
 
 // GetDefaultWorkerConfig returns the default worker configuration
 func GetDefaultWorkerConfig() *WorkerConfig {
 	return &WorkerConfig{
-		LoggerType: DefaultLoggerType,
-		PsqlDSN:    DefaultPsqlDSN,
-		S3:         getDefaultS3(),
-		Kafka:      getDefaultKafka(),
+		LoggerType:               DefaultLoggerType,
+		PsqlDSN:                  DefaultPsqlDSN,
+		S3:                       getDefaultS3(),
+		Kafka:                    getDefaultKafka(),
+		GracefullShutdownTimeout: DefaultGracefullShutdownTimeout,
+		OTELExporterOTLPEndpoint: DefaultOTELExporterOTLPEndpoint,
 	}
 }
 
@@ -67,6 +73,7 @@ func (c *WorkerConfig) UpdateFromEnvironment() error {
 	c.Kafka.Topic = GetEnvOrFallback("KAFKA_TOPIC", c.Kafka.Topic)
 	c.Kafka.GroupID = GetEnvOrFallback("KAFKA_GROUP_ID", c.Kafka.GroupID)
 	c.LoggerType = GetEnvOrFallback("LOGGER_TYPE", c.LoggerType)
+	c.OTELExporterOTLPEndpoint = GetEnvOrFallback("OTEL_EXPORTER_OTLP_ENDPOINT", c.OTELExporterOTLPEndpoint)
 
 	return nil
 }
@@ -84,6 +91,7 @@ func (c *WorkerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 	flagSet.StringVar(&c.Kafka.Topic, "kafka-topic", c.Kafka.Topic, "Kafka topic for avatar processing")
 	flagSet.StringVar(&c.Kafka.GroupID, "kafka-group-id", c.Kafka.GroupID, "Kafka consumer group ID")
 	flagSet.StringVar(&c.LoggerType, "logger-type", c.LoggerType, "logger type: zap, slog (default)")
+	flagSet.StringVar(&c.OTELExporterOTLPEndpoint, "otel-endpoint", c.OTELExporterOTLPEndpoint, "OTLP exporter endpoint (e.g., jaeger:4317)")
 
 	var dummy string
 	flagSet.StringVar(&dummy, "c", "", "path to configuration file")
@@ -156,6 +164,10 @@ func (c *WorkerConfig) UpdateFromFile(configFile string) error {
 
 	if jsonCfg.LoggerType != "" {
 		c.LoggerType = jsonCfg.LoggerType
+	}
+
+	if jsonCfg.OTELExporterOTLPEndpoint != "" {
+		c.OTELExporterOTLPEndpoint = jsonCfg.OTELExporterOTLPEndpoint
 	}
 
 	return nil

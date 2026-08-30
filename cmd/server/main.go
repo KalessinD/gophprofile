@@ -15,6 +15,7 @@ import (
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/logger"
 	srv "github.com/KalessinD/gophprofile/internal/server"
+	"github.com/KalessinD/gophprofile/internal/telemetry"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -33,12 +34,18 @@ func main() {
 }
 
 func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
-	rootCtx, cancel := context.WithCancel(context.Background())
-	notifyCtx, notifyCancel := signal.NotifyContext(rootCtx, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(context.Background())
+	notifyCtx, notifyCancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	defer cancel()
 	defer notifyCancel()
 
-	pgdb, err := databaseWorks(rootCtx, cfg, appLogger)
+	otelShutdown, err := telemetry.InitTracer(ctx, cfg.GracefullShutdownTimeout, cfg.OTELExporterOTLPEndpoint)
+	if err != nil {
+		return err
+	}
+	defer otelShutdown()
+
+	pgdb, err := databaseWorks(ctx, cfg, appLogger)
 	if err != nil {
 		return err
 	}
@@ -79,7 +86,7 @@ func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
 	case <-notifyCtx.Done():
 		appLogger.Info("Received shutdown signal, shutting down server...")
 
-		shutdownCtx, shutdownCancel := context.WithTimeout(rootCtx, cfg.GracefullShutdownTimeout)
+		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, cfg.GracefullShutdownTimeout)
 		defer shutdownCancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {

@@ -11,32 +11,32 @@ import (
 )
 
 const (
-	DefaultListenAddr               string        = ":8080"
-	DefaultProcessingTimeout        time.Duration = 60 * time.Second
-	DefaultReadTimeout              time.Duration = 5 * time.Second
-	DefaultReadHeaderTimeout        time.Duration = 5 * time.Second
-	DefaultWriteTimeout             time.Duration = 10 * time.Second
-	DefaultIdleTimeout              time.Duration = 30 * time.Second
-	DefaultGracefullShutdownTimeout time.Duration = 5 * time.Second
-	DefaultWebStaticDir                           = "./web/static/"
-	DefaultApplyMigrations          bool          = false
+	DefaultListenAddr        string        = ":8080"
+	DefaultProcessingTimeout time.Duration = 60 * time.Second
+	DefaultReadTimeout       time.Duration = 5 * time.Second
+	DefaultReadHeaderTimeout time.Duration = 5 * time.Second
+	DefaultWriteTimeout      time.Duration = 10 * time.Second
+	DefaultIdleTimeout       time.Duration = 30 * time.Second
+	DefaultWebStaticDir                    = "./web/static/"
+	DefaultApplyMigrations   bool          = false
 )
 
 type (
 	// serverConfigJSON is used only for JSON file unmarshaling
 	serverConfigJSON struct {
-		Address         string `json:"address,omitempty"`
-		S3Address       string `json:"s3_address,omitempty"`
-		S3UseSSL        bool   `json:"s3_use_ssl,omitempty"`
-		S3AccessKey     string `json:"s3_access_key,omitempty"`
-		S3Secretkey     string `json:"s3_secretkey,omitempty"`
-		S3Bucket        string `json:"s3_bucket,omitempty"`
-		DatabaseDSN     string `json:"database_dsn,omitempty"`
-		KafkaBrokers    string `json:"kafka_brokers,omitempty"`
-		KafkaTopic      string `json:"kafka_topic,omitempty"`
-		KafkaGroupID    string `json:"kafka_group_id,omitempty"`
-		ApplyMigrations bool   `json:"apply_migrations"`
-		LoggerType      string `json:"logger_type"`
+		Address                  string `json:"address,omitempty"`
+		S3Address                string `json:"s3_address,omitempty"`
+		S3UseSSL                 bool   `json:"s3_use_ssl,omitempty"`
+		S3AccessKey              string `json:"s3_access_key,omitempty"`
+		S3Secretkey              string `json:"s3_secretkey,omitempty"`
+		S3Bucket                 string `json:"s3_bucket,omitempty"`
+		DatabaseDSN              string `json:"database_dsn,omitempty"`
+		KafkaBrokers             string `json:"kafka_brokers,omitempty"`
+		KafkaTopic               string `json:"kafka_topic,omitempty"`
+		KafkaGroupID             string `json:"kafka_group_id,omitempty"`
+		ApplyMigrations          bool   `json:"apply_migrations"`
+		LoggerType               string `json:"logger_type"`
+		OTELExporterOTLPEndpoint string `json:"otel_exporter_otlp_endpoint,omitempty"`
 
 		TLS *struct {
 			CertFile string `json:"cert_file,omitempty"`
@@ -61,6 +61,7 @@ type (
 		ApplyMigrations          bool
 		S3                       *S3
 		Kafka                    *Kafka
+		OTELExporterOTLPEndpoint string
 	}
 
 	// TLSConfig contains paths to TLS certificates.
@@ -86,6 +87,7 @@ func GetDefaultServerConfig() *ServerConfig {
 		ApplyMigrations:          DefaultApplyMigrations,
 		S3:                       getDefaultS3(),
 		Kafka:                    getDefaultKafka(),
+		OTELExporterOTLPEndpoint: DefaultOTELExporterOTLPEndpoint,
 	}
 }
 
@@ -129,6 +131,7 @@ func (c *ServerConfig) UpdateFromEnvironment() error {
 	c.Kafka.GroupID = GetEnvOrFallback("KAFKA_GROUP_ID", c.Kafka.GroupID)
 	c.ApplyMigrations = GetEnvOrFallback("APPLY_DB_MIGRATIONS", c.ApplyMigrations)
 	c.LoggerType = GetEnvOrFallback("LOGGER_TYPE", c.LoggerType)
+	c.OTELExporterOTLPEndpoint = GetEnvOrFallback("OTEL_EXPORTER_OTLP_ENDPOINT", c.OTELExporterOTLPEndpoint)
 
 	tlsCertFile := GetEnvOrFallback("TLS_CERT_FILE", "")
 	tlsKeyFile := GetEnvOrFallback("TLS_KEY_FILE", "")
@@ -157,6 +160,7 @@ func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 	flagSet.StringVar(&c.Kafka.Topic, "kafka-topic", c.Kafka.Topic, "Kafka topic for avatar processing")
 	flagSet.StringVar(&c.Kafka.GroupID, "kafka-group-id", c.Kafka.GroupID, "Kafka consumer group ID")
 	flagSet.StringVar(&c.LoggerType, "logger-type", c.LoggerType, "logger type: zap, slog (default)")
+	flagSet.StringVar(&c.OTELExporterOTLPEndpoint, "otel-endpoint", c.OTELExporterOTLPEndpoint, "OTLP exporter endpoint (e.g., jaeger:4317)")
 
 	// Using temporary variables to prevent nil pointer dereference if TLSConfig is nil
 	var tlsCertFile string
@@ -257,6 +261,10 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 
 	if jsonCfg.LoggerType != "" {
 		c.LoggerType = jsonCfg.LoggerType
+	}
+
+	if jsonCfg.OTELExporterOTLPEndpoint != "" {
+		c.OTELExporterOTLPEndpoint = jsonCfg.OTELExporterOTLPEndpoint
 	}
 
 	return nil

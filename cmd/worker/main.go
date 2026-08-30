@@ -14,6 +14,7 @@ import (
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3"
 	srv "github.com/KalessinD/gophprofile/internal/server"
+	"github.com/KalessinD/gophprofile/internal/telemetry"
 	"github.com/KalessinD/gophprofile/internal/worker"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -42,6 +43,12 @@ func run() error {
 	rootCtx, cancel := context.WithCancel(context.Background())
 	notifyCtx, _ := signal.NotifyContext(rootCtx, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	defer cancel()
+
+	otelShutdown, err := telemetry.InitTracer(context.Background(), cfg.GracefullShutdownTimeout, cfg.OTELExporterOTLPEndpoint)
+	if err != nil {
+		return err
+	}
+	defer otelShutdown()
 
 	pgdb, err := srv.PsqlConnect(notifyCtx, cfg.PsqlDSN, appLogger)
 	if err != nil {
