@@ -35,7 +35,11 @@ func InitTracer(ctx context.Context, shutdownTimeout time.Duration, jaegerEndpoi
 		return nil, fmt.Errorf("creating OTel resources: %w", err)
 	}
 
-	traceExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(jaegerEndpoint))
+	traceExporter, err := otlptracegrpc.New(
+		ctx,
+		otlptracegrpc.WithEndpoint(jaegerEndpoint),
+		otlptracegrpc.WithInsecure(), // don't use TLS inside docker
+	)
 	if err != nil {
 		return nil, fmt.Errorf("creating OTLP exporter: %w", err)
 	}
