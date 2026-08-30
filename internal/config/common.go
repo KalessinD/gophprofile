@@ -1,6 +1,7 @@
 package config
 
 import (
+	"flag"
 	"strings"
 )
 
@@ -14,9 +15,20 @@ const (
 	DefaultKafkaBrokers string = ""
 	DefaultKafkaTopic   string = "avatar-processing"
 	DefaultKafkaGroupID string = "gophprofile-worker-group"
+
+	DefaultLoggerType string = "slog" // zap is possible too
+
+	DefaultPsqlDSN string = ""
 )
 
+var validLogTypes = map[string]struct{}{
+	"slog": {},
+	"zap":  {},
+}
+
 type (
+	LoggerType string
+
 	S3 struct {
 		UseSSL     bool
 		AccessKey  string
@@ -29,6 +41,14 @@ type (
 		Brokers string
 		Topic   string
 		GroupID string
+	}
+
+	// Configurator is an interface to be implemented by server/worker configuration object
+	Configurator interface {
+		UpdateFromEnvironment() error
+		UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) error
+		UpdateFromFile(configFile string) error
+		Validate() error
 	}
 )
 

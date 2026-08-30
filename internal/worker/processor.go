@@ -13,9 +13,9 @@ import (
 	"strings"
 
 	"github.com/KalessinD/gophprofile/internal/broker"
+	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/disintegration/imaging"
-	"go.uber.org/zap"
 )
 
 const (
@@ -42,12 +42,12 @@ type (
 		repo   AvatarRepository
 		s3     ObjectStorage
 		bucket string
-		log    *zap.Logger
+		log    logger.Logger
 	}
 )
 
 // NewImageProcessor creates a new ImageProcessor instance.
-func NewImageProcessor(repo AvatarRepository, s3 ObjectStorage, bucket string, log *zap.Logger) *ImageProcessor {
+func NewImageProcessor(repo AvatarRepository, s3 ObjectStorage, bucket string, log logger.Logger) *ImageProcessor {
 	return &ImageProcessor{
 		repo:   repo,
 		s3:     s3,
@@ -65,7 +65,7 @@ func (p *ImageProcessor) ProcessAvatar(ctx context.Context, event *broker.Avatar
 
 	// Skip if already processed or explicitly failed
 	if avatar.Status != models.AvatarStatusProcessing {
-		p.log.Info("skipping avatar, status is not processing", zap.String("avatar_id", event.AvatarID), zap.String("status", avatar.Status))
+		p.log.Info("skipping avatar, status is not processing", "avatar_id", event.AvatarID, "status", avatar.Status)
 		return nil
 	}
 
@@ -91,16 +91,16 @@ func (p *ImageProcessor) ProcessAvatar(ctx context.Context, event *broker.Avatar
 		return fmt.Errorf("marking avatar as ready: %w", err)
 	}
 
-	p.log.Info("avatar processed successfully", zap.String("avatar_id", event.AvatarID))
+	p.log.Info("avatar processed successfully", "avatar_id", event.AvatarID)
 	return nil
 }
 
 // failProcessing attempts to mark the avatar as failed in the DB and returns the original error.
 func (p *ImageProcessor) failProcessing(ctx context.Context, avatarID string, processErr error) error {
-	p.log.Error("failed to process avatar", zap.String("avatar_id", avatarID), zap.Error(processErr))
+	p.log.Error("failed to process avatar", "avatar_id", avatarID, "error", processErr)
 
 	if updateErr := p.repo.UpdateAvatarStatus(ctx, avatarID, models.AvatarStatusError, "", "", 0, 0); updateErr != nil {
-		p.log.Error("failed to update avatar status to error", zap.String("avatar_id", avatarID), zap.Error(updateErr))
+		p.log.Error("failed to update avatar status to error", "avatar_id", avatarID, "error", updateErr)
 	}
 
 	return processErr

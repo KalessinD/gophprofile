@@ -8,7 +8,7 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/KalessinD/gophprofile/internal/broker"
-	"go.uber.org/zap"
+	"github.com/KalessinD/gophprofile/internal/logger"
 )
 
 type (
@@ -21,7 +21,7 @@ type (
 		handler func(ctx context.Context, event *broker.AvatarEvent) error
 		ready   chan bool
 		wg      sync.WaitGroup
-		logger  *zap.Logger
+		logger  logger.Logger
 	}
 
 	// consumerGroupHandler implements sarama.ConsumerGroupHandler interface.
@@ -29,12 +29,12 @@ type (
 		handler   Handler
 		ready     chan bool
 		readyOnce sync.Once
-		logger    *zap.Logger
+		logger    logger.Logger
 	}
 )
 
 // NewConsumer initializes a new Kafka consumer group.
-func NewConsumer(brokers string, topic string, groupID string, logger *zap.Logger) (*Consumer, error) {
+func NewConsumer(brokers string, topic string, groupID string, logger logger.Logger) (*Consumer, error) {
 	config := sarama.NewConfig()
 	config.Consumer.Group.Rebalance.GroupStrategies = append(config.Consumer.Group.Rebalance.GroupStrategies, sarama.NewBalanceStrategyRoundRobin())
 	config.Version = sarama.DefaultVersion
@@ -55,7 +55,6 @@ func NewConsumer(brokers string, topic string, groupID string, logger *zap.Logge
 // ConsumeAvatarEvents starts consuming messages from the Kafka topic in a background goroutine.
 func (c *Consumer) ConsumeAvatarEvents(ctx context.Context, handler Handler) {
 	c.handler = handler
-	log := c.logger.Sugar()
 
 	c.wg.Go(func() {
 		for {
@@ -69,7 +68,7 @@ func (c *Consumer) ConsumeAvatarEvents(ctx context.Context, handler Handler) {
 					logger:  c.logger,
 				}
 				if err := c.client.Consume(ctx, []string{c.topic}, group); err != nil {
-					log.Errorf("Kafka consume error: %v\n", err)
+					c.logger.Errorf("Kafka consume error: %v", err)
 				}
 				if ctx.Err() != nil {
 					return
@@ -114,13 +113,13 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 
 			var event broker.AvatarEvent
 			if err := json.Unmarshal(msg.Value, &event); err != nil {
-				h.logger.Error("failed to unmarshal kafka message", zap.Error(err))
+				h.logger.Error("failed to unmarshal kafka message", "error", err)
 				session.MarkMessage(msg, "")
 				continue
 			}
 
 			if err := h.handler(session.Context(), &event); err != nil {
-				h.logger.Error("failed to process avatar event", zap.Error(err))
+				h.logger.Error("failed to process avatar event", "error", err)
 			}
 
 			session.MarkMessage(msg, "")

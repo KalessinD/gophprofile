@@ -3,11 +3,10 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/go-chi/chi/middleware"
-	"go.uber.org/zap"
 )
 
 type (
@@ -25,8 +24,8 @@ type (
 const LoggerKey ContextKey = "logger"
 
 // Extracts Logger from context
-func GetLogger(ctx context.Context) *zap.Logger {
-	if log, ok := ctx.Value(LoggerKey).(*zap.Logger); ok {
+func GetLogger(ctx context.Context) logger.Logger {
+	if log, ok := ctx.Value(LoggerKey).(logger.Logger); ok {
 		return log
 	}
 	return nil
@@ -35,7 +34,7 @@ func GetLogger(ctx context.Context) *zap.Logger {
 /*
 Добавляет логгер в контекст
 */
-func AddLoggerToContext(parentCtx context.Context, log *zap.Logger) context.Context {
+func AddLoggerToContext(parentCtx context.Context, log logger.Logger) context.Context {
 	return context.WithValue(parentCtx, LoggerKey, log)
 }
 
@@ -57,18 +56,7 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 }
 
 /*
-Из HTTP заголовков получает тип сжатия и добавляет его в zap-поле для логирования
-*/
-func GetEncodingField(prefix, name string, header http.Header) zap.Field {
-	enc := header[name]
-	if len(enc) == 0 {
-		return zap.Skip()
-	}
-	return zap.Strings(prefix+strings.ToLower(name), enc)
-}
-
-/*
-Мидлварь для добавления zap-логера с кастомными полями в контекст.
+Мидлварь для добавления логгера с кастомными полями в контекст.
 
 Добавляемые поля:
   - method - HTTP method
@@ -82,7 +70,7 @@ func GetEncodingField(prefix, name string, header http.Header) zap.Field {
   - responsecontent-encoding - HTTP заголовок Content-Encoding из ответа
   - response-accept-encoding - HTTP заголовок Accept-Encoding из ответа
 */
-func Logger(log *zap.Logger) func(http.Handler) http.Handler {
+func Logger(log logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -97,25 +85,21 @@ func Logger(log *zap.Logger) func(http.Handler) http.Handler {
 				responseData:   responseData,
 			}
 
-			extLogger := log.With(
-				zap.String("request_id", middleware.GetReqID(r.Context())),
-			)
-
-			ctx := AddLoggerToContext(r.Context(), extLogger)
+			ctx := AddLoggerToContext(r.Context(), log.With("request_id", middleware.GetReqID(r.Context())))
 
 			next.ServeHTTP(lw, r.WithContext(ctx))
 
-			extLogger.Info("request completed",
-				zap.String("method", r.Method),
-				zap.String("path", r.URL.Path),
-				zap.String("remote_addr", r.RemoteAddr),
-				zap.Duration("duration", time.Since(start)),
-				zap.Int("status", responseData.status),
-				zap.Int("response_size", responseData.size),
-				zap.Strings("request-content-encoding", r.Header.Values("Content-Encoding")),
-				zap.Strings("request-accept-encoding", r.Header.Values("Accept-Encoding")),
-				GetEncodingField("response-", "Content-Encoding", w.Header()),
-				GetEncodingField("response-", "Accept-Encoding", w.Header()),
+			GetLogger(ctx).Info("request completed",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", r.RemoteAddr,
+				"duration", time.Since(start),
+				"status", responseData.status,
+				"response_size", responseData.size,
+				"request-content-encoding", r.Header.Values("Content-Encoding"),
+				"request-accept-encoding", r.Header.Values("Accept-Encoding"),
+				"response-Content-Encoding", w.Header().Values("Content-Encoding"),
+				"response-Accept-Encoding", w.Header().Values("Accept-Encoding"),
 			)
 		})
 	}

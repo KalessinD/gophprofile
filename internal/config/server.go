@@ -18,9 +18,7 @@ const (
 	DefaultWriteTimeout             time.Duration = 10 * time.Second
 	DefaultIdleTimeout              time.Duration = 30 * time.Second
 	DefaultGracefullShutdownTimeout time.Duration = 5 * time.Second
-	DefaultPsqlDSN                  string        = ""
 	DefaultWebStaticDir                           = "./web/static/"
-	DefaultCompressionThreshold     int           = 1024
 	DefaultApplyMigrations          bool          = false
 )
 
@@ -38,6 +36,7 @@ type (
 		KafkaTopic      string `json:"kafka_topic,omitempty"`
 		KafkaGroupID    string `json:"kafka_group_id,omitempty"`
 		ApplyMigrations bool   `json:"apply_migrations"`
+		LoggerType      string `json:"logger_type"`
 
 		TLS *struct {
 			CertFile string `json:"cert_file,omitempty"`
@@ -47,6 +46,7 @@ type (
 
 	// Server configuration struct
 	ServerConfig struct {
+		LoggerType               string
 		ListenAddr               string
 		ProcessingTimeout        time.Duration
 		ReadTimeout              time.Duration
@@ -63,14 +63,6 @@ type (
 		Kafka                    *Kafka
 	}
 
-	// ServerConfigurator is an interface to be implemented by server configuration object
-	ServerConfigurator interface {
-		UpdateFromEnvironment() error
-		UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) error
-		UpdateFromFile(configFile string) error
-		Validate() error
-	}
-
 	// TLSConfig contains paths to TLS certificates.
 	TLSConfig struct {
 		CertFile string
@@ -81,6 +73,7 @@ type (
 // GetDefaultServerConfig returns the default server configuration
 func GetDefaultServerConfig() *ServerConfig {
 	return &ServerConfig{
+		LoggerType:               DefaultLoggerType,
 		ListenAddr:               DefaultListenAddr,
 		ProcessingTimeout:        DefaultProcessingTimeout,
 		ReadTimeout:              DefaultReadTimeout,
@@ -90,7 +83,6 @@ func GetDefaultServerConfig() *ServerConfig {
 		GracefullShutdownTimeout: DefaultGracefullShutdownTimeout,
 		PsqlDSN:                  DefaultPsqlDSN,
 		WebStaticDir:             DefaultWebStaticDir,
-		CompressionThreshold:     DefaultCompressionThreshold,
 		ApplyMigrations:          DefaultApplyMigrations,
 		S3:                       getDefaultS3(),
 		Kafka:                    getDefaultKafka(),
@@ -114,6 +106,12 @@ func (c *ServerConfig) Validate() error {
 		}
 	}
 
+	if c.LoggerType != "" {
+		if _, ok := validLogTypes[c.LoggerType]; !ok {
+			return errors.New("invalid logger type. Supported types are zap and slog")
+		}
+	}
+
 	return nil
 }
 
@@ -130,6 +128,7 @@ func (c *ServerConfig) UpdateFromEnvironment() error {
 	c.Kafka.Topic = GetEnvOrFallback("KAFKA_TOPIC", c.Kafka.Topic)
 	c.Kafka.GroupID = GetEnvOrFallback("KAFKA_GROUP_ID", c.Kafka.GroupID)
 	c.ApplyMigrations = GetEnvOrFallback("APPLY_DB_MIGRATIONS", c.ApplyMigrations)
+	c.LoggerType = GetEnvOrFallback("LOGGER_TYPE", c.LoggerType)
 
 	tlsCertFile := GetEnvOrFallback("TLS_CERT_FILE", "")
 	tlsKeyFile := GetEnvOrFallback("TLS_KEY_FILE", "")
@@ -157,6 +156,7 @@ func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 	flagSet.StringVar(&c.Kafka.Brokers, "kafka-brokers", c.Kafka.Brokers, "Kafka broker addresses (comma separated)")
 	flagSet.StringVar(&c.Kafka.Topic, "kafka-topic", c.Kafka.Topic, "Kafka topic for avatar processing")
 	flagSet.StringVar(&c.Kafka.GroupID, "kafka-group-id", c.Kafka.GroupID, "Kafka consumer group ID")
+	flagSet.StringVar(&c.LoggerType, "logger-type", c.LoggerType, "logger type: zap, slog (default)")
 
 	// Using temporary variables to prevent nil pointer dereference if TLSConfig is nil
 	var tlsCertFile string
@@ -253,6 +253,10 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 		}
 	} else {
 		c.TLSConfig = nil
+	}
+
+	if jsonCfg.LoggerType != "" {
+		c.LoggerType = jsonCfg.LoggerType
 	}
 
 	return nil

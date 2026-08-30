@@ -16,8 +16,6 @@ import (
 	"github.com/KalessinD/gophprofile/internal/logger"
 	srv "github.com/KalessinD/gophprofile/internal/server"
 
-	"go.uber.org/zap"
-
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -34,18 +32,18 @@ func main() {
 	}
 }
 
-func runHTTPServer(cfg *config.ServerConfig, logger *zap.Logger) error {
+func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
 	rootCtx, cancel := context.WithCancel(context.Background())
 	notifyCtx, notifyCancel := signal.NotifyContext(rootCtx, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	defer cancel()
 	defer notifyCancel()
 
-	pgdb, err := databaseWorks(rootCtx, cfg, logger)
+	pgdb, err := databaseWorks(rootCtx, cfg, appLogger)
 	if err != nil {
 		return err
 	}
 
-	router, err := srv.NewRouter(notifyCtx, cfg, logger, pgdb)
+	router, err := srv.NewRouter(notifyCtx, cfg, appLogger, pgdb)
 	if err != nil {
 		return err
 	}
@@ -63,9 +61,9 @@ func runHTTPServer(cfg *config.ServerConfig, logger *zap.Logger) error {
 
 	serverErrors := make(chan error, 1)
 	go func() {
-		logger.Info("Server started at " + cfg.ListenAddr)
+		appLogger.Info("Server started at " + cfg.ListenAddr)
 		if cfg.TLSConfig != nil {
-			logger.Info("TLS is enabled, starting HTTPS server")
+			appLogger.Info("TLS is enabled, starting HTTPS server")
 			serverErrors <- server.ListenAndServeTLS(cfg.TLSConfig.CertFile, cfg.TLSConfig.KeyFile)
 		} else {
 			serverErrors <- server.ListenAndServe()
@@ -79,7 +77,7 @@ func runHTTPServer(cfg *config.ServerConfig, logger *zap.Logger) error {
 			serverErr = fmt.Errorf("server startup error: %w", err)
 		}
 	case <-notifyCtx.Done():
-		logger.Info("Received shutdown signal, shutting down server...")
+		appLogger.Info("Received shutdown signal, shutting down server...")
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(rootCtx, cfg.GracefullShutdownTimeout)
 		defer shutdownCancel()
@@ -93,16 +91,16 @@ func runHTTPServer(cfg *config.ServerConfig, logger *zap.Logger) error {
 		return serverErr
 	}
 
-	logger.Info("Server stopped gracefully")
+	appLogger.Info("Server stopped gracefully")
 	return nil
 }
 
-func databaseWorks(ctx context.Context, cfg *config.ServerConfig, logger *zap.Logger) (*sql.DB, error) {
+func databaseWorks(ctx context.Context, cfg *config.ServerConfig, appLogger logger.Logger) (*sql.DB, error) {
 	if cfg.PsqlDSN == "" {
 		return nil, errors.New("database_dsn is empty")
 	}
 
-	pgdb, err := srv.PsqlConnect(ctx, cfg.PsqlDSN, logger)
+	pgdb, err := srv.PsqlConnect(ctx, cfg.PsqlDSN, appLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -130,17 +128,17 @@ func applyDatabaseMigrations(ctx context.Context, pgdb *sql.DB) error {
 }
 
 func run() error {
-	zapLogger, err := logger.NewLogger(config.IsProduction())
-	if err != nil {
-		return fmt.Errorf("failed to init logger: %w", err)
-	}
-
-	defer func() { _ = zapLogger.Sync() }()
-
 	cfg, err := config.NewServerConfig(flag.CommandLine, os.Args[1:])
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	return runHTTPServer(cfg, zapLogger)
+	appLogger, err := logger.NewLogger(cfg.LoggerType, config.IsProduction())
+	if err != nil {
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+
+	defer func() { _ = appLogger.Sync() }()
+
+	return runHTTPServer(cfg, appLogger)
 }

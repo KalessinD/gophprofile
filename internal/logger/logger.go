@@ -1,31 +1,59 @@
+//go:generate mockgen -source=logger.go -destination=mocks/mock_logger.gen.go -package=mocks
 package logger
 
 import (
-	"os"
-
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"fmt"
 )
 
-func NewLogger(isProd bool) (*zap.Logger, error) {
-	if isProd {
-		return zap.NewProduction()
-	}
+// Logger engine constants for type-safe configuration.
+const (
+	EngineSlog = "slog"
+	EngineZap  = "zap"
+	EngineNop  = "nop"
+)
 
-	return NewConsoleLogger()
+// Logger defines the universal contract for logging.
+// It supports both structured (key-value) and formatted logging,
+// allowing to switch between underlying implementations (slog, zap, etc.).
+type Logger interface {
+	// Sugar returns the logger itself, as all methods in this interface
+	// already follow the "sugared" pattern (accepting variadic keys or format args).
+	Sugar() Logger
+
+	// With creates a child logger with additional structured context fields.
+	With(keysAndValues ...any) Logger
+
+	// Structured logging methods (key-value pairs)
+	Debug(msg string, keysAndValues ...any)
+	Info(msg string, keysAndValues ...any)
+	Warn(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
+
+	// Formatted logging methods (fmt.Sprintf style)
+	Debugf(template string, args ...any)
+	Infof(template string, args ...any)
+	Warnf(template string, args ...any)
+	Errorf(template string, args ...any)
+
+	// Sync flushes any buffered log entries. Should be called before app exit.
+	Sync() error
 }
 
-func NewConsoleLogger() (*zap.Logger, error) {
-	encoderConfig := zap.NewDevelopmentEncoderConfig()
+// NewLogger is a unified factory that returns a Logger interface based on the chosen engine.
+// If an empty string is provided, it defaults to "slog".
+func NewLogger(engine string, isProd bool) (Logger, error) {
+	if engine == "" {
+		engine = EngineSlog
+	}
 
-	// Цветной уровень (если нужен)
-	encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-
-	core := zapcore.NewCore(
-		zapcore.NewConsoleEncoder(encoderConfig),
-		zapcore.AddSync(os.Stdout),
-		zap.DebugLevel,
-	)
-
-	return zap.New(core, zap.AddCaller()), nil
+	switch engine {
+	case EngineSlog:
+		return NewSlogLogger(isProd), nil
+	case EngineZap:
+		return NewZapLogger(isProd)
+	case EngineNop:
+		return NewNopLogger(), nil
+	default:
+		return nil, fmt.Errorf("unsupported logger engine: %s", engine)
+	}
 }

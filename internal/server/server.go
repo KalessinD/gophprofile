@@ -12,13 +12,13 @@ import (
 	"github.com/KalessinD/gophprofile/internal/broker/kafka"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/handlers"
+	"github.com/KalessinD/gophprofile/internal/logger"
 	mw "github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3"
 	"github.com/KalessinD/gophprofile/internal/services"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 
 	"github.com/go-chi/cors"
 )
@@ -28,10 +28,10 @@ var (
 	waitIntervalBetweenConnections = time.Second * 3
 )
 
-func PsqlConnect(ctx context.Context, dsn string, log *zap.Logger) (*sql.DB, error) {
+func PsqlConnect(ctx context.Context, dsn string, log logger.Logger) (*sql.DB, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		log.Error("Failed to parse DSN", zap.Error(err))
+		log.Error("Failed to parse DSN", "error", err)
 		return nil, fmt.Errorf("parsing DSN: %w", err)
 	}
 
@@ -40,15 +40,15 @@ func PsqlConnect(ctx context.Context, dsn string, log *zap.Logger) (*sql.DB, err
 	for attempt := range maxConnectionRetries {
 		lastErr = db.PingContext(ctx)
 		if lastErr == nil {
-			log.Info("Successfully connected to PostgreSQL", zap.Int("attempt", attempt))
+			log.Info("Successfully connected to PostgreSQL", "attempt", attempt)
 			break
 		}
 
 		log.Warn("Failed to connect to PostgreSQL, retrying...",
-			zap.Int("attempt", attempt),
-			zap.Int("max_retries", maxConnectionRetries),
-			zap.Duration("interval", waitIntervalBetweenConnections),
-			zap.Error(lastErr),
+			"attempt", attempt,
+			"max_retries", maxConnectionRetries,
+			"interval", waitIntervalBetweenConnections,
+			"error", lastErr,
 		)
 
 		if attempt < maxConnectionRetries {
@@ -64,7 +64,7 @@ func PsqlConnect(ctx context.Context, dsn string, log *zap.Logger) (*sql.DB, err
 	}
 
 	if lastErr != nil {
-		log.Error("Failed to connect to PostgreSQL after all retries", zap.Error(lastErr))
+		log.Error("Failed to connect to PostgreSQL after all retries", "error", lastErr)
 		db.Close()
 		return nil, fmt.Errorf("db connection failed after %d retries: %w", maxConnectionRetries, lastErr)
 	}
@@ -78,7 +78,7 @@ func PsqlConnect(ctx context.Context, dsn string, log *zap.Logger) (*sql.DB, err
 	return db, nil
 }
 
-func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
+func GetBaseRouter(cfg *config.ServerConfig, log logger.Logger) *chi.Mux {
 	router := chi.NewRouter()
 
 	// Standard middlewares
@@ -101,7 +101,7 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 }
 
 // NewRouter initializes dependencies and configures HTTP routes.
-func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, pgdb *sql.DB) (http.Handler, error) {
+func NewRouter(ctx context.Context, cfg *config.ServerConfig, log logger.Logger, pgdb *sql.DB) (http.Handler, error) {
 	var err error
 
 	router := GetBaseRouter(cfg, log)

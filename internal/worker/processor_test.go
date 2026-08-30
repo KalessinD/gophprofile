@@ -10,12 +10,12 @@ import (
 	"testing"
 
 	"github.com/KalessinD/gophprofile/internal/broker"
+	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/worker/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"go.uber.org/zap"
 )
 
 const (
@@ -29,7 +29,7 @@ func setupProcessorTest(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepo
 
 	repoMock := mocks.NewMockAvatarRepository(ctrl)
 	s3Mock := mocks.NewMockObjectStorage(ctrl)
-	proc := NewImageProcessor(repoMock, s3Mock, testBucket, zap.NewNop())
+	proc := NewImageProcessor(repoMock, s3Mock, testBucket, logger.NewNopLogger())
 
 	return ctrl, repoMock, s3Mock, proc
 }

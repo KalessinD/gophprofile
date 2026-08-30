@@ -6,76 +6,56 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
+	"go.uber.org/mock/gomock"
 
+	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/logger/mocks"
 	mw "github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/go-chi/chi/middleware"
 )
 
 func TestMiddleware_LogsRequest(t *testing.T) {
-	// создаём observer для перехвата логов
-	core, recorded := observer.New(zap.InfoLevel)
-	logger := zap.New(core)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	// тестовый handler
-	nextHandlerCalled := false
+	mockLogger := mocks.NewMockLogger(ctrl)
+
+	// Ожидаем, что middleware вызовет With для добавления request_id
+	mockLogger.EXPECT().With(gomock.Any()).Return(mockLogger)
+
+	// Ожидаем финальный вызов логирования с точным соответствием ключей и сообщения
+	mockLogger.EXPECT().Info(
+		"request completed",
+		"method", http.MethodGet,
+		"path", "/test",
+		"remote_addr", gomock.Any(),
+		"duration", gomock.Any(),
+		"status", gomock.Any(),
+		"response_size", gomock.Any(),
+		"request-content-encoding", gomock.Any(),
+		"request-accept-encoding", gomock.Any(),
+		"response-Content-Encoding", gomock.Any(),
+		"response-Accept-Encoding", gomock.Any(),
+	)
+
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		nextHandlerCalled = true
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// оборачиваем middleware
-	middleware := mw.Logger(logger)
+	middleware := mw.Logger(mockLogger)
 	handler := middleware(next)
 
-	// создаём тестовый запрос
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	// Используем t.Context() согласно стандартам проекта
+	req := httptest.NewRequest(http.MethodGet, "/test", nil).WithContext(t.Context())
 	rec := httptest.NewRecorder()
 
-	// вызываем
 	handler.ServeHTTP(rec, req)
-
-	if !nextHandlerCalled {
-		t.Fatal("next handler was not called")
-	}
-
-	logs := recorded.All()
-	if len(logs) != 1 {
-		t.Fatalf("expected 1 log entry, got %d", len(logs))
-	}
-
-	entry := logs[0]
-
-	if entry.Message != "request completed" {
-		t.Fatalf("unexpected log message: %s", entry.Message)
-	}
-
-	fields := entry.ContextMap()
-
-	if fields["method"] != http.MethodGet {
-		t.Errorf("expected method %s, got %v", http.MethodGet, fields["method"])
-	}
-
-	if fields["path"] != "/test" {
-		t.Errorf("expected path /test, got %v", fields["path"])
-	}
-
-	if fields["remote_addr"] == "" {
-		t.Error("expected remote_addr to be set")
-	}
-
-	if fields["duration"] == nil {
-		t.Error("expected duration field")
-	}
 }
 
 // TestGetLogger тестирует получение логгера из контекста
 func TestGetLogger(t *testing.T) {
-	logger := zap.NewNop()
-
 	t.Run("Logger exists in context", func(t *testing.T) {
-		ctx := mw.AddLoggerToContext(t.Context(), logger)
+		ctx := mw.AddLoggerToContext(t.Context(), logger.NewNopLogger())
 		got := mw.GetLogger(ctx)
 		if got == nil {
 			t.Error("expected logger, got nil")
@@ -90,60 +70,33 @@ func TestGetLogger(t *testing.T) {
 	})
 }
 
-// TestGetEncodingField тестирует приватную функцию getEncodingField
-func TestGetEncodingField(t *testing.T) {
-	tests := []struct {
-		name       string
-		prefix     string
-		headerName string
-		headerVal  []string
-		wantSkip   bool
-	}{
-		{
-			name:       "Existing header",
-			prefix:     "response-",
-			headerName: "Content-Encoding",
-			headerVal:  []string{"gzip"},
-			wantSkip:   false,
-		},
-		{
-			name:       "Missing header",
-			prefix:     "response-",
-			headerName: "Accept-Encoding",
-			headerVal:  nil,
-			wantSkip:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := make(http.Header)
-			if tt.headerVal != nil {
-				for _, v := range tt.headerVal {
-					h.Add(tt.headerName, v)
-				}
-			}
-
-			field := mw.GetEncodingField(tt.prefix, tt.headerName, h)
-
-			if tt.wantSkip {
-				if field.Type != zap.Skip().Type {
-					t.Errorf("expected Skip field, got %v", field)
-				}
-			} else {
-				if field.Type == zap.Skip().Type {
-					t.Errorf("expected String field, got Skip")
-				}
-			}
-		})
-	}
-}
-
 // TestMiddleware тестирует полную работу мидлвари
 func TestMiddleware(t *testing.T) {
-	// Используем observer, чтобы перехватить логи
-	observerCore, logs := observer.New(zap.InfoLevel)
-	testLogger := zap.New(observerCore)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockLogger := mocks.NewMockLogger(ctrl)
+
+	reqID := "test-request-id-123"
+
+	// Ожидаем вызов With для добавления request_id в логгер
+	mockLogger.EXPECT().With("request_id", reqID).Return(mockLogger)
+
+	// Ожидаем вызов Info с точным соответствием ключей и значений.
+	// Типы должны совпадать с теми, что будут переданы из middleware (например, int для статуса и размера).
+	mockLogger.EXPECT().Info(
+		"request completed",
+		"method", http.MethodPost,
+		"path", "/test",
+		"remote_addr", gomock.Any(),
+		"duration", gomock.Any(),
+		"status", http.StatusCreated,
+		"response_size", len("created"),
+		"request-content-encoding", gomock.Any(),
+		"request-accept-encoding", gomock.Any(),
+		"response-Content-Encoding", gomock.Any(),
+		"response-Accept-Encoding", gomock.Any(),
+	)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Проверяем, что логгер попал в контекст внутри хендлера
@@ -156,77 +109,20 @@ func TestMiddleware(t *testing.T) {
 		_, _ = w.Write([]byte("created"))
 	})
 
-	// Создаем запрос
 	req := httptest.NewRequest(http.MethodPost, "/test", nil)
 
-	// Добавляем RequestID в контекст запроса
-	reqID := "test-request-id-123"
+	// Добавляем RequestID в контекст запроса (имитируя chi middleware)
 	ctx := context.WithValue(t.Context(), middleware.RequestIDKey, reqID)
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
 
 	// Запускаем мидлварю
-	mw := mw.Logger(testLogger)
+	mw := mw.Logger(mockLogger)
 	mw(handler).ServeHTTP(rec, req)
 
 	// Проверяем, что ответ прошел корректно
 	if rec.Code != http.StatusCreated {
 		t.Errorf("expected status %d, got %d", http.StatusCreated, rec.Code)
-	}
-
-	// Проверяем логи
-	entries := logs.All()
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 log entry, got %d", len(entries))
-	}
-
-	entry := entries[0]
-	if entry.Message != "request completed" {
-		t.Errorf("unexpected message: %s", entry.Message)
-	}
-
-	// Вспомогательная функция для поиска поля в логе
-	findField := func(key string) (zap.Field, bool) {
-		for _, f := range entry.Context {
-			if f.Key == key {
-				return f, true
-			}
-		}
-		return zap.Field{}, false
-	}
-
-	// Проверяем наличие и значение ключевых полей
-	tests := []struct {
-		key      string
-		expected any
-	}{
-		{"request_id", reqID},
-		{"method", http.MethodPost},
-		{"path", "/test"},
-		{"status", int64(http.StatusCreated)},
-		{"response_size", int64(len("created"))},
-	}
-
-	for _, tt := range tests {
-		t.Run("check field "+tt.key, func(t *testing.T) {
-			field, ok := findField(tt.key)
-			if !ok {
-				t.Errorf("field %s not found in log", tt.key)
-				return
-			}
-
-			// Сравниваем значения в зависимости от типа
-			switch expectedValue := tt.expected.(type) {
-			case string:
-				if field.String != expectedValue {
-					t.Errorf("field %s: expected %s, got %s", tt.key, expectedValue, field.String)
-				}
-			case int64:
-				if field.Integer != expectedValue {
-					t.Errorf("field %s: expected %d, got %d", tt.key, expectedValue, field.Integer)
-				}
-			}
-		})
 	}
 }

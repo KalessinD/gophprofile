@@ -5,16 +5,16 @@ import (
 	"time"
 
 	"github.com/KalessinD/gophprofile/internal/config"
+	"github.com/KalessinD/gophprofile/internal/logger"
 	srv "github.com/KalessinD/gophprofile/internal/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func TestGetBaseRouter(t *testing.T) {
 	t.Helper()
 
-	log := zap.NewNop()
+	log := logger.NewNopLogger()
 	cfg := &config.ServerConfig{
 		ProcessingTimeout: 10 * time.Second,
 	}
@@ -27,7 +27,7 @@ func TestGetBaseRouter(t *testing.T) {
 // TestPsqlConnect_Failure тестирует сценарий ошибки подключения.
 // Успешное подключение юнит-тестом не покрывается, так как требует реальной БД.
 func TestPsqlConnect_Failure(t *testing.T) {
-	log := zap.NewNop()
+	log := logger.NewNopLogger()
 	ctx := t.Context()
 
 	// Несуществующий DSN
@@ -40,7 +40,7 @@ func TestPsqlConnect_Failure(t *testing.T) {
 }
 
 func TestNewRouter_MissingS3(t *testing.T) {
-	log := zap.NewNop()
+	log := logger.NewNopLogger()
 	cfg := &config.ServerConfig{
 		ProcessingTimeout: 10 * time.Second,
 		S3:                &config.S3{},

@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/KalessinD/gophprofile/internal/config"
+	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3/mocks"
 	"github.com/minio/minio-go/v7"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"go.uber.org/zap"
 )
 
 const bucketS3 = "test-bucket"
@@ -23,7 +23,7 @@ func TestStorage_UploadObject_Success(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockClient := mocks.NewMockClientInterface(ctrl)
-	testLogger := zap.NewNop()
+	testLogger := logger.NewNopLogger()
 
 	storage := &Storage{
 		client: mockClient,
@@ -56,7 +56,7 @@ func TestStorage_GetObject_Error(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockClient := mocks.NewMockClientInterface(ctrl)
-	testLogger := zap.NewNop()
+	testLogger := logger.NewNopLogger()
 
 	storage := &Storage{
 		client: mockClient,
@@ -89,7 +89,7 @@ func TestStorage_DeleteObject_Success(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockClient := mocks.NewMockClientInterface(ctrl)
-	testLogger := zap.NewNop()
+	testLogger := logger.NewNopLogger()
 
 	storage := &Storage{
 		client: mockClient,
@@ -118,7 +118,7 @@ func TestStorage_DeleteObject_Error(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockClient := mocks.NewMockClientInterface(ctrl)
-	testLogger := zap.NewNop()
+	testLogger := logger.NewNopLogger()
 
 	storage := &Storage{
 		client: mockClient,
@@ -156,7 +156,7 @@ func TestNewS3Storage_ConnectionFailed(t *testing.T) {
 		UseSSL:     false,
 	}
 
-	storage, err := NewS3Storage(ctx, cfg, zap.NewNop())
+	storage, err := NewS3Storage(ctx, cfg, logger.NewNopLogger())
 	require.Error(t, err)
 	assert.Nil(t, storage)
 	assert.Contains(t, err.Error(), "failed to check S3 bucket")
