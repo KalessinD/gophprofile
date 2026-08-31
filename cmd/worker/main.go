@@ -9,8 +9,10 @@ import (
 	"syscall"
 
 	"github.com/KalessinD/gophprofile/internal/broker/kafka"
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3"
 	"github.com/KalessinD/gophprofile/internal/telemetry"
@@ -38,13 +40,18 @@ func run() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	err = metrics.Init(notifyCtx)
+	if err != nil {
+		return err
+	}
+
 	appLogger, err := logger.NewLogger(cfg.LoggerType, config.IsProduction())
 	if err != nil {
 		return fmt.Errorf("failed to init logger: %w", err)
 	}
 	defer func() { _ = appLogger.Sync() }()
 
-	otelShutdown, err := telemetry.InitAll(ctx, cfg.Otel)
+	otelShutdown, err := telemetry.InitAll(ctx, cfg.Otel, common.OtelWorkerName)
 	if err != nil {
 		return err
 	}
@@ -54,6 +61,12 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
+
+	dbCancel, err := metrics.RecordDBStats(ctx, pgdb)
+	if err != nil {
+		return err
+	}
+	defer dbCancel()
 
 	s3Client, err := s3.NewS3Storage(notifyCtx, cfg.S3, appLogger)
 	if err != nil {

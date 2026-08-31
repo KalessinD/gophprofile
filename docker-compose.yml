@@ -266,12 +266,51 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./docker/grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./docker/grafana/provisioning/dashboards:/var/lib/grafana/dashboards
     environment:
-      GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_PROVISIONING_PATH: /var/lib/grafana/dashboards
     depends_on:
       - prometheus
       - opensearch
+    networks:
+      - gophprofile
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: gophprofile-kafka-exporter
+    ports:
+      - "9308:9308" # Default port for kafka-exporter
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_EXPORTER_PORT: "9308"
+      KAFKA_LOG_DIR: /var/log/kafka-exporter
+    volumes:
+      - kafka_data:/var/log/kafka-exporter
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - gophprofile
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: gophprofile-otel-collector
+    command: ["--config=/etc/otel-collector/config.yaml"]
+    ports:
+      - "8889:8889" # Prometheus metrics endpoint
+      - "13133:13133" # health check
+    volumes:
+      - ./docker/otel-collector/config.yaml:/etc/otel-collector/config.yaml
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:13133']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      jaeger:
+        condition: service_started
     networks:
       - gophprofile
 

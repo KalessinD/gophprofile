@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -24,12 +23,12 @@ type (
 var tracerProvider *sdktrace.TracerProvider
 
 // newResources creates OTel Resource attributes common for both Traces and Metrics.
-func newResources(ctx context.Context) (*resource.Resource, error) {
+func newResources(ctx context.Context, serviceName string) (*resource.Resource, error) {
 	res, err := resource.Merge(
 		resource.DefaultWithContext(ctx),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(common.OtelServiceName),
+			semconv.ServiceName(serviceName),
 		),
 	)
 	if err != nil {
@@ -40,16 +39,10 @@ func newResources(ctx context.Context) (*resource.Resource, error) {
 
 // InitTracer initializes the global OpenTelemetry TracerProvider and sets it as default.
 // It configures the OTLP gRPC exporter to send traces to Jaeger.
-func InitTracer(ctx context.Context, shutdownTimeout time.Duration, jaegerEndpoint string) (Shutdown, error) {
-	resources, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(common.OtelServiceName),
-		),
-	)
+func InitTracer(ctx context.Context, shutdownTimeout time.Duration, jaegerEndpoint, serviceName string) (Shutdown, error) {
+	resources, err := newResources(ctx, serviceName)
 	if err != nil {
-		return nil, fmt.Errorf("creating OTel resources: %w", err)
+		return nil, err
 	}
 
 	traceExporter, err := otlptracegrpc.New(
@@ -91,8 +84,8 @@ func InitTracer(ctx context.Context, shutdownTimeout time.Duration, jaegerEndpoi
 
 // InitMeterProvider initializes the global OpenTelemetry MeterProvider.
 // It uses the OTLP HTTP exporter (as recommended in Yandex Practicum) to push metrics.
-func InitMeterProvider(ctx context.Context, shutdownTimeout, metricReadperiod time.Duration, otlpEndpoint string) (Shutdown, error) {
-	resources, err := newResources(ctx)
+func InitMeterProvider(ctx context.Context, shutdownTimeout, metricReadperiod time.Duration, otlpEndpoint, serviceName string) (Shutdown, error) {
+	resources, err := newResources(ctx, serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -132,13 +125,13 @@ func InitMeterProvider(ctx context.Context, shutdownTimeout, metricReadperiod ti
 }
 
 // InitAll initializes the global OpenTelemetry MeterProvider and the global OpenTelemetry TracerProvider.
-func InitAll(ctx context.Context, cfg *config.Otel) (Shutdown, error) {
-	otelShutdown, err := InitTracer(ctx, cfg.ShutdownTimeout, cfg.ExporterOTLPEndpoint)
+func InitAll(ctx context.Context, cfg *config.Otel, serviceName string) (Shutdown, error) {
+	otelShutdown, err := InitTracer(ctx, cfg.ShutdownTimeout, cfg.ExporterOTLPEndpoint, serviceName)
 	if err != nil {
 		return nil, err
 	}
 
-	metricsShutdown, err := InitMeterProvider(ctx, cfg.ShutdownTimeout, cfg.MetricReadPeriod, cfg.ExporterOTLPEndpoint)
+	metricsShutdown, err := InitMeterProvider(ctx, cfg.ShutdownTimeout, cfg.MetricReadPeriod, cfg.ExporterOTLPEndpoint, serviceName)
 	if err != nil {
 		return nil, err
 	}

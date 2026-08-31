@@ -12,8 +12,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	srv "github.com/KalessinD/gophprofile/internal/server"
 	"github.com/KalessinD/gophprofile/internal/telemetry"
@@ -40,7 +42,12 @@ func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
 	defer cancel()
 	defer notifyCancel()
 
-	otelShutdown, err := telemetry.InitAll(ctx, cfg.Otel)
+	err := metrics.Init(notifyCtx)
+	if err != nil {
+		return err
+	}
+
+	otelShutdown, err := telemetry.InitAll(ctx, cfg.Otel, common.OtelServiceName)
 	if err != nil {
 		return err
 	}
@@ -50,6 +57,12 @@ func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
 	if err != nil {
 		return err
 	}
+
+	dbCancel, err := metrics.RecordDBStats(ctx, pgdb)
+	if err != nil {
+		return err
+	}
+	defer dbCancel()
 
 	router, err := srv.NewRouter(notifyCtx, cfg, appLogger, pgdb)
 	if err != nil {
