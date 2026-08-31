@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/minio/minio-go/v7"
@@ -15,8 +16,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
-
-const tracerName = "gophprofile-s3"
 
 type (
 	// Storage implements ObjectStorageInterface using MinIO SDK.
@@ -61,7 +60,7 @@ func NewS3Storage(ctx context.Context, cfg *config.S3, log logger.Logger) (*Stor
 
 // UploadObject streams an object from reader directly to the S3 bucket.
 func (s *Storage) UploadObject(ctx context.Context, bucket string, objectKey string, reader io.Reader) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "s3.upload_object")
+	ctx, span := otel.Tracer(common.OtelS3Name).Start(ctx, "s3.upload_object")
 	defer span.End()
 
 	span.SetAttributes(
@@ -83,7 +82,7 @@ func (s *Storage) UploadObject(ctx context.Context, bucket string, objectKey str
 
 // GetObject retrieves an object from S3.
 func (s *Storage) GetObject(ctx context.Context, bucket string, objectKey string) (io.ReadCloser, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "s3.get_object")
+	ctx, span := otel.Tracer(common.OtelS3Name).Start(ctx, "s3.get_object")
 	defer span.End()
 
 	span.SetAttributes(
@@ -103,7 +102,7 @@ func (s *Storage) GetObject(ctx context.Context, bucket string, objectKey string
 
 // DeleteObject removes an object from S3.
 func (s *Storage) DeleteObject(ctx context.Context, bucket string, objectKey string) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "s3.delete_object")
+	ctx, span := otel.Tracer(common.OtelS3Name).Start(ctx, "s3.delete_object")
 	defer span.End()
 
 	span.SetAttributes(

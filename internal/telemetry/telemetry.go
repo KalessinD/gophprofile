@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -15,8 +16,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
-
-const serviceName = "gophprofile"
 
 type (
 	Shutdown func()
@@ -30,7 +29,7 @@ func newResources(ctx context.Context) (*resource.Resource, error) {
 		resource.DefaultWithContext(ctx),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(serviceName),
+			semconv.ServiceName(common.OtelServiceName),
 		),
 	)
 	if err != nil {
@@ -46,7 +45,7 @@ func InitTracer(ctx context.Context, shutdownTimeout time.Duration, jaegerEndpoi
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(serviceName),
+			semconv.ServiceName(common.OtelServiceName),
 		),
 	)
 	if err != nil {

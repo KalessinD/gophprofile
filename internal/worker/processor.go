@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/KalessinD/gophprofile/internal/broker"
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/models"
@@ -28,8 +29,6 @@ const (
 	extJPEG = ".jpeg"
 	extJPG  = ".jpg"
 	extPNG  = ".png"
-
-	tracerName = "gophprofile-worker"
 )
 
 type (
@@ -66,7 +65,7 @@ func NewImageProcessor(repo AvatarRepository, s3 ObjectStorage, bucket string, l
 
 // ProcessAvatar executes the full pipeline for a single avatar event.
 func (p *ImageProcessor) ProcessAvatar(ctx context.Context, event *broker.AvatarEvent) error {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "worker.process_avatar")
+	ctx, span := otel.Tracer(common.OtelWorkerName).Start(ctx, "worker.process_avatar")
 	defer span.End()
 
 	span.SetAttributes(
@@ -141,7 +140,7 @@ func (p *ImageProcessor) failProcessing(ctx context.Context, avatarID string, pr
 
 // downloadAndDecodeImage retrieves an image from S3 and decodes it into memory.
 func (p *ImageProcessor) downloadAndDecodeImage(ctx context.Context, s3Key string) (image.Image, string, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "worker.download_and_decode_image")
+	ctx, span := otel.Tracer(common.OtelWorkerName).Start(ctx, "worker.download_and_decode_image")
 	defer span.End()
 
 	span.SetAttributes(attribute.String("worker.s3_key", s3Key))
@@ -189,7 +188,7 @@ func (p *ImageProcessor) processThumbnail(
 	avatarID string,
 	targetSize int,
 ) (string, error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "worker.process_thumbnail")
+	ctx, span := otel.Tracer(common.OtelWorkerName).Start(ctx, "worker.process_thumbnail")
 	defer span.End()
 
 	span.SetAttributes(

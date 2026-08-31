@@ -8,15 +8,12 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/KalessinD/gophprofile/internal/broker"
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/dnwe/otelsarama"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-)
-
-const (
-	tracerName = "gophprofile-kafka"
 )
 
 type (
@@ -125,7 +122,7 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 			ctx := otel.GetTextMapPropagator().Extract(session.Context(), otelsarama.NewConsumerMessageCarrier(msg))
 
 			// Start a new child span for message processing
-			ctx, span := otel.Tracer(tracerName).Start(ctx, "kafka.consume_avatar_event")
+			ctx, span := otel.Tracer(common.OtelKafkaName).Start(ctx, "kafka.consume_avatar_event")
 			defer span.End()
 
 			span.SetAttributes(

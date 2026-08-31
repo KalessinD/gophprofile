@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/KalessinD/gophprofile/internal/broker/kafka"
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/handlers"
 	"github.com/KalessinD/gophprofile/internal/logger"
@@ -114,12 +115,12 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log logger.Logger,
 	}
 
 	router.HandleFunc("/web/upload", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Type", common.TextHTTPContentType)
 		http.ServeFile(w, r, staticIndexPath)
 	})
 
 	// Wrap the Chi router with OTel HTTP middleware for automatic tracing of all requests
-	otelRouter := otelhttp.NewHandler(router, "gophprofile-http")
+	otelRouter := otelhttp.NewHandler(router, common.OtelHTTPName)
 
 	return otelRouter, nil
 }

@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/KalessinD/gophprofile/internal/common"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
-
-const serviceName = "gophprofile"
 
 type (
 	// AvatarMetrics holds the OpenTelemetry instruments for avatar business logic.
@@ -30,7 +29,7 @@ var (
 // It uses sync.Once to ensure thread-safe singleton initialization without global variables.
 func Init(_ context.Context) error {
 	mOnce.Do(func() {
-		meter := otel.Meter(serviceName)
+		meter := otel.Meter(common.OtelServiceName)
 
 		mInstance = &AvatarMetrics{}
 
