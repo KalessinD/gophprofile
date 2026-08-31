@@ -10,6 +10,7 @@
     "gnetId": null,
     "graphTooltip": 0,
     "id": null,
+    "title": "GophProfile Business KPIs",
     "panels": [
       {
         "datasource": "Prometheus",

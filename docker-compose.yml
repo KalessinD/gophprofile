@@ -266,6 +266,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./docker/grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./docker/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
       - ./docker/grafana/provisioning/dashboards:/var/lib/grafana/dashboards
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
@@ -311,6 +312,18 @@ services:
     depends_on:
       jaeger:
         condition: service_started
+    networks:
+      - gophprofile
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: gophprofile-alertmanager
+    ports:
+      - "9093:9093"
+    depends_on:
+      - prometheus
+    volumes:
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
     networks:
       - gophprofile
 
