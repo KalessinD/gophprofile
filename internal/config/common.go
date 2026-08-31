@@ -23,6 +23,7 @@ const (
 	DefaultOTELExporterOTLPEndpoint string = "jaeger:4317"
 
 	DefaultGracefullShutdownTimeout time.Duration = 5 * time.Second
+	DefaultMetricReadPeriod         time.Duration = 2 * time.Second
 )
 
 var validLogTypes = map[string]struct{}{
@@ -47,6 +48,12 @@ type (
 		GroupID string
 	}
 
+	Otel struct {
+		ExporterOTLPEndpoint string
+		MetricReadPeriod     time.Duration
+		ShutdownTimeout      time.Duration
+	}
+
 	// Configurator is an interface to be implemented by server/worker configuration object
 	Configurator interface {
 		UpdateFromEnvironment() error
@@ -55,6 +62,14 @@ type (
 		Validate() error
 	}
 )
+
+func getDefaultOtel() *Otel {
+	return &Otel{
+		ExporterOTLPEndpoint: DefaultOTELExporterOTLPEndpoint,
+		ShutdownTimeout:      DefaultGracefullShutdownTimeout,
+		MetricReadPeriod:     DefaultMetricReadPeriod,
+	}
+}
 
 func getDefaultS3() *S3 {
 	return &S3{

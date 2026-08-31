@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 )
 
 type (
@@ -28,25 +27,23 @@ type (
 
 	// Worker configuration struct
 	WorkerConfig struct {
-		LoggerType               string
-		PsqlDSN                  string
-		CompressionThreshold     int
-		S3                       *S3
-		Kafka                    *Kafka
-		GracefullShutdownTimeout time.Duration
-		OTELExporterOTLPEndpoint string
+		LoggerType           string
+		PsqlDSN              string
+		CompressionThreshold int
+		S3                   *S3
+		Kafka                *Kafka
+		Otel                 *Otel
 	}
 )
 
 // GetDefaultWorkerConfig returns the default worker configuration
 func GetDefaultWorkerConfig() *WorkerConfig {
 	return &WorkerConfig{
-		LoggerType:               DefaultLoggerType,
-		PsqlDSN:                  DefaultPsqlDSN,
-		S3:                       getDefaultS3(),
-		Kafka:                    getDefaultKafka(),
-		GracefullShutdownTimeout: DefaultGracefullShutdownTimeout,
-		OTELExporterOTLPEndpoint: DefaultOTELExporterOTLPEndpoint,
+		LoggerType: DefaultLoggerType,
+		PsqlDSN:    DefaultPsqlDSN,
+		S3:         getDefaultS3(),
+		Kafka:      getDefaultKafka(),
+		Otel:       getDefaultOtel(),
 	}
 }
 
@@ -73,7 +70,7 @@ func (c *WorkerConfig) UpdateFromEnvironment() error {
 	c.Kafka.Topic = GetEnvOrFallback("KAFKA_TOPIC", c.Kafka.Topic)
 	c.Kafka.GroupID = GetEnvOrFallback("KAFKA_GROUP_ID", c.Kafka.GroupID)
 	c.LoggerType = GetEnvOrFallback("LOGGER_TYPE", c.LoggerType)
-	c.OTELExporterOTLPEndpoint = GetEnvOrFallback("OTEL_EXPORTER_OTLP_ENDPOINT", c.OTELExporterOTLPEndpoint)
+	c.Otel.ExporterOTLPEndpoint = GetEnvOrFallback("OTEL_EXPORTER_OTLP_ENDPOINT", c.Otel.ExporterOTLPEndpoint)
 
 	return nil
 }
@@ -91,7 +88,7 @@ func (c *WorkerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 	flagSet.StringVar(&c.Kafka.Topic, "kafka-topic", c.Kafka.Topic, "Kafka topic for avatar processing")
 	flagSet.StringVar(&c.Kafka.GroupID, "kafka-group-id", c.Kafka.GroupID, "Kafka consumer group ID")
 	flagSet.StringVar(&c.LoggerType, "logger-type", c.LoggerType, "logger type: zap, slog (default)")
-	flagSet.StringVar(&c.OTELExporterOTLPEndpoint, "otel-endpoint", c.OTELExporterOTLPEndpoint, "OTLP exporter endpoint (e.g., jaeger:4317)")
+	flagSet.StringVar(&c.Otel.ExporterOTLPEndpoint, "otel-endpoint", c.Otel.ExporterOTLPEndpoint, "OTLP exporter endpoint (e.g., jaeger:4317)")
 
 	var dummy string
 	flagSet.StringVar(&dummy, "c", "", "path to configuration file")
@@ -167,7 +164,7 @@ func (c *WorkerConfig) UpdateFromFile(configFile string) error {
 	}
 
 	if jsonCfg.OTELExporterOTLPEndpoint != "" {
-		c.OTELExporterOTLPEndpoint = jsonCfg.OTELExporterOTLPEndpoint
+		c.Otel.ExporterOTLPEndpoint = jsonCfg.OTELExporterOTLPEndpoint
 	}
 
 	return nil

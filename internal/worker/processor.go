@@ -14,18 +14,22 @@ import (
 
 	"github.com/KalessinD/gophprofile/internal/broker"
 	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/disintegration/imaging"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
 	extJPEG = ".jpeg"
 	extJPG  = ".jpg"
 	extPNG  = ".png"
+
+	tracerName = "gophprofile-worker"
 )
 
 type (
@@ -62,7 +66,7 @@ func NewImageProcessor(repo AvatarRepository, s3 ObjectStorage, bucket string, l
 
 // ProcessAvatar executes the full pipeline for a single avatar event.
 func (p *ImageProcessor) ProcessAvatar(ctx context.Context, event *broker.AvatarEvent) error {
-	ctx, span := otel.Tracer("gophprofile-worker").Start(ctx, "worker.process_avatar")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "worker.process_avatar")
 	defer span.End()
 
 	span.SetAttributes(
@@ -113,6 +117,13 @@ func (p *ImageProcessor) ProcessAvatar(ctx context.Context, event *broker.Avatar
 		return fmt.Errorf("marking avatar as ready: %w", err)
 	}
 
+	// Record business metric: add file size to storage gauge upon successful processing
+	m := metrics.Instance()
+	m.StorageBytes.Add(ctx, avatar.FileSize, metric.WithAttributes(
+		attribute.String("user_id", event.UserID),
+		attribute.String("avatar_id", event.AvatarID),
+	))
+
 	p.log.Info("avatar processed successfully", "avatar_id", event.AvatarID)
 	return nil
 }
@@ -130,7 +141,7 @@ func (p *ImageProcessor) failProcessing(ctx context.Context, avatarID string, pr
 
 // downloadAndDecodeImage retrieves an image from S3 and decodes it into memory.
 func (p *ImageProcessor) downloadAndDecodeImage(ctx context.Context, s3Key string) (image.Image, string, error) {
-	ctx, span := otel.Tracer("gophprofile-worker").Start(ctx, "worker.download_and_decode_image")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "worker.download_and_decode_image")
 	defer span.End()
 
 	span.SetAttributes(attribute.String("worker.s3_key", s3Key))
@@ -178,7 +189,7 @@ func (p *ImageProcessor) processThumbnail(
 	avatarID string,
 	targetSize int,
 ) (string, error) {
-	ctx, span := otel.Tracer("gophprofile-worker").Start(ctx, "worker.process_thumbnail")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "worker.process_thumbnail")
 	defer span.End()
 
 	span.SetAttributes(

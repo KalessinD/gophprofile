@@ -28,6 +28,11 @@ func main() {
 
 // run initializes dependencies and starts the background worker.
 func run() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	notifyCtx, notifyCancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+	defer cancel()
+	defer notifyCancel()
+
 	cfg, err := config.NewWorkerConfig(flag.CommandLine, os.Args[1:])
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -39,11 +44,7 @@ func run() error {
 	}
 	defer func() { _ = appLogger.Sync() }()
 
-	rootCtx, cancel := context.WithCancel(context.Background())
-	notifyCtx, _ := signal.NotifyContext(rootCtx, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
-	defer cancel()
-
-	otelShutdown, err := telemetry.InitTracer(context.Background(), cfg.GracefullShutdownTimeout, cfg.OTELExporterOTLPEndpoint)
+	otelShutdown, err := telemetry.InitAll(ctx, cfg.Otel)
 	if err != nil {
 		return err
 	}

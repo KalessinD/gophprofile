@@ -61,7 +61,7 @@ type (
 		ApplyMigrations          bool
 		S3                       *S3
 		Kafka                    *Kafka
-		OTELExporterOTLPEndpoint string
+		Otel                     *Otel
 	}
 
 	// TLSConfig contains paths to TLS certificates.
@@ -87,7 +87,7 @@ func GetDefaultServerConfig() *ServerConfig {
 		ApplyMigrations:          DefaultApplyMigrations,
 		S3:                       getDefaultS3(),
 		Kafka:                    getDefaultKafka(),
-		OTELExporterOTLPEndpoint: DefaultOTELExporterOTLPEndpoint,
+		Otel:                     getDefaultOtel(),
 	}
 }
 
@@ -131,7 +131,7 @@ func (c *ServerConfig) UpdateFromEnvironment() error {
 	c.Kafka.GroupID = GetEnvOrFallback("KAFKA_GROUP_ID", c.Kafka.GroupID)
 	c.ApplyMigrations = GetEnvOrFallback("APPLY_DB_MIGRATIONS", c.ApplyMigrations)
 	c.LoggerType = GetEnvOrFallback("LOGGER_TYPE", c.LoggerType)
-	c.OTELExporterOTLPEndpoint = GetEnvOrFallback("OTEL_EXPORTER_OTLP_ENDPOINT", c.OTELExporterOTLPEndpoint)
+	c.Otel.ExporterOTLPEndpoint = GetEnvOrFallback("OTEL_EXPORTER_OTLP_ENDPOINT", c.Otel.ExporterOTLPEndpoint)
 
 	tlsCertFile := GetEnvOrFallback("TLS_CERT_FILE", "")
 	tlsKeyFile := GetEnvOrFallback("TLS_KEY_FILE", "")
@@ -160,7 +160,7 @@ func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 	flagSet.StringVar(&c.Kafka.Topic, "kafka-topic", c.Kafka.Topic, "Kafka topic for avatar processing")
 	flagSet.StringVar(&c.Kafka.GroupID, "kafka-group-id", c.Kafka.GroupID, "Kafka consumer group ID")
 	flagSet.StringVar(&c.LoggerType, "logger-type", c.LoggerType, "logger type: zap, slog (default)")
-	flagSet.StringVar(&c.OTELExporterOTLPEndpoint, "otel-endpoint", c.OTELExporterOTLPEndpoint, "OTLP exporter endpoint (e.g., jaeger:4317)")
+	flagSet.StringVar(&c.Otel.ExporterOTLPEndpoint, "otel-endpoint", c.Otel.ExporterOTLPEndpoint, "OTLP exporter endpoint (e.g., jaeger:4317)")
 
 	// Using temporary variables to prevent nil pointer dereference if TLSConfig is nil
 	var tlsCertFile string
@@ -264,7 +264,7 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 	}
 
 	if jsonCfg.OTELExporterOTLPEndpoint != "" {
-		c.OTELExporterOTLPEndpoint = jsonCfg.OTELExporterOTLPEndpoint
+		c.Otel.ExporterOTLPEndpoint = jsonCfg.OTELExporterOTLPEndpoint
 	}
 
 	return nil

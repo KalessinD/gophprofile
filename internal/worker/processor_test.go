@@ -2,6 +2,7 @@ package worker // nolint: testpackage
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"image"
 	"image/jpeg"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/KalessinD/gophprofile/internal/broker"
 	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/worker/mocks"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +23,11 @@ import (
 const (
 	testBucket = "test-bucket"
 )
+
+func TestMain(m *testing.M) {
+	_ = metrics.Init(context.Background())
+	m.Run()
+}
 
 // setupProcessorTest is a helper to initialize mocks and the processor.
 func setupProcessorTest(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepository, *mocks.MockObjectStorage, *ImageProcessor) {

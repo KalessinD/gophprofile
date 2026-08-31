@@ -15,6 +15,10 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
+const (
+	tracerName = "gophprofile-kafka"
+)
+
 type (
 	Handler func(ctx context.Context, event *broker.AvatarEvent) error
 
@@ -121,7 +125,7 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 			ctx := otel.GetTextMapPropagator().Extract(session.Context(), otelsarama.NewConsumerMessageCarrier(msg))
 
 			// Start a new child span for message processing
-			ctx, span := otel.Tracer("gophprofile-kafka").Start(ctx, "kafka.consume_avatar_event")
+			ctx, span := otel.Tracer(tracerName).Start(ctx, "kafka.consume_avatar_event")
 			defer span.End()
 
 			span.SetAttributes(

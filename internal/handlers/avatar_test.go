@@ -13,6 +13,7 @@ import (
 
 	"github.com/KalessinD/gophprofile/internal/handlers"
 	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/services"
@@ -27,6 +28,11 @@ const (
 	testBucket = "test-bucket"
 	testUserID = "user-123"
 )
+
+func TestMain(m *testing.M) {
+	_ = metrics.Init(context.Background())
+	m.Run()
+}
 
 // setupTestEnv is a helper to initialize mocks, service, and handler.
 // nolint: unparam

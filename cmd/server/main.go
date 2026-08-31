@@ -40,7 +40,7 @@ func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
 	defer cancel()
 	defer notifyCancel()
 
-	otelShutdown, err := telemetry.InitTracer(ctx, cfg.GracefullShutdownTimeout, cfg.OTELExporterOTLPEndpoint)
+	otelShutdown, err := telemetry.InitAll(ctx, cfg.Otel)
 	if err != nil {
 		return err
 	}

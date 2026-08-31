@@ -6,13 +6,17 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/services"
 	"github.com/go-chi/chi/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -117,16 +121,28 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	appLogger := middleware.GetLogger(ctx)
+	m := metrics.Instance()
+
+	// Start timing the upload process
+	start := time.Now()
 
 	err = h.service.CreateAvatar(ctx, newAvatar, sizeTrackingReader)
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
+
+		// Record metric on failure
+		m.UploadsTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+		m.UploadDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attribute.String("status", "error")))
 
 		appLogger.Debugf("can't upload the avatar: %v", err)
 		http.Error(w, message, status)
 
 		return
 	}
+
+	// Record metric on success
+	m.UploadsTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "success")))
+	m.UploadDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attribute.String("status", "success")))
 
 	w.Header().Set("Content-Type", common.AppJSONContentType)
 	w.WriteHeader(http.StatusCreated)
