@@ -7,11 +7,11 @@ done
 
 echo "OpenSearch Dashboards is ready. Creating Data View..."
 
-curl -X POST "http://opensearch-dashboards:5601/api/data_views/data_view" \
+curl -X POST "http://opensearch-dashboards:5601/api/saved_objects/index-pattern" \
   -H "osd-xsrf: true" \
   -H "Content-Type: application/json" \
   -d '{
-    "data_view": {
+    "attributes": {
       "title": "gophprofile-logs*",
       "timeFieldName": "time"
     }

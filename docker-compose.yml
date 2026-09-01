@@ -91,6 +91,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: avatar-processing
       OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      YP_ENV: "prod"
     networks:
       - gophprofile
 
@@ -121,6 +122,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: avatar-processing
       OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      YP_ENV: "prod"
     networks:
       - gophprofile
 
@@ -225,9 +227,13 @@ services:
       - DISABLE_SECURITY_PLUGIN=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
       - DISABLE_PERFORMANCE_ANALYZER=true
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rm -rf /usr/share/opensearch/plugins/opensearch-performance-analyzer
+        exec /usr/share/opensearch/opensearch-docker-entrypoint.sh      
     ports:
       - "9200:9200"
-      - "9600:9600" # Performance Analyzer
     volumes:
       - opensearch_data:/usr/share/opensearch/data
     networks:
