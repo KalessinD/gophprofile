@@ -271,6 +271,7 @@ services:
     container_name: gophprofile-fluent-bit
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ./docker/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - fluent_bit_state:/var/log
     depends_on:
