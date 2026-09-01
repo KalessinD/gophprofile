@@ -270,10 +270,8 @@ services:
     image: fluent/fluent-bit:5.1.1
     container_name: gophprofile-fluent-bit
     volumes:
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/log/containers:/var/log/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./docker/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-      - ./docker/fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
       - fluent_bit_state:/var/log
     depends_on:
       - opensearch
