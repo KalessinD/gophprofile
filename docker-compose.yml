@@ -90,6 +90,7 @@ services:
       S3_USE_SSL: "false"
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: avatar-processing
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
     networks:
       - gophprofile
 
@@ -119,6 +120,7 @@ services:
       S3_USE_SSL: "false"
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: avatar-processing
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
     networks:
       - gophprofile
 
@@ -238,10 +240,23 @@ services:
       - "5601:5601"
     environment:
       - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
       - OPENSEARCH_DASHBOARDS_SECURITY_ENABLED=false
       - OPENSEARCH_HOSTS=http://opensearch:9200
     depends_on:
       - opensearch
+    networks:
+      - gophprofile
+
+  dashboards-setup:
+    image: curlimages/curl:8.21.0
+    container_name: gophprofile-dashboards-setup
+    depends_on:
+      opensearch-dashboards:
+        condition: service_started
+    volumes:
+      - ./docker/opensearch-dashboards/setup-data-view.sh:/setup.sh
+    entrypoint: ["/bin/sh", "/setup.sh"]
     networks:
       - gophprofile
 
