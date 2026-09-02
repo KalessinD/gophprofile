@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 )
 
 var ErrThumbnailNotReady = errors.New("requested thumbnail is not ready yet")
@@ -43,12 +43,12 @@ type (
 		s3       ObjectStorage
 		producer AvatarProducer
 		bucket   string
-		logger   *zap.Logger
+		logger   logger.Logger
 	}
 )
 
 // NewAvatarService creates a new instance of AvatarService.
-func NewAvatarService(repo AvatarRepository, s3 ObjectStorage, producer AvatarProducer, bucket string, logger *zap.Logger) *AvatarService {
+func NewAvatarService(repo AvatarRepository, s3 ObjectStorage, producer AvatarProducer, bucket string, logger logger.Logger) *AvatarService {
 	return &AvatarService{
 		repo:     repo,
 		s3:       s3,
@@ -73,7 +73,7 @@ func (s *AvatarService) CreateAvatar(ctx context.Context, avatar *models.Avatar,
 	if err := s.repo.CreateAvatar(ctx, avatar); err != nil {
 		// Attempt to cleanup S3 object if DB save fails
 		if delErr := s.s3.DeleteObject(ctx, s.bucket, avatar.OriginalS3Key); delErr != nil {
-			s.logger.Error("failed to cleanup S3 object after DB save failure", zap.String("avatar_id", avatar.ID), zap.String("s3_key", avatar.OriginalS3Key), zap.Error(delErr))
+			s.logger.Error("failed to cleanup S3 object after DB save failure", "avatar_id", avatar.ID, "s3_key", avatar.OriginalS3Key, "error", delErr.Error())
 		}
 		return fmt.Errorf("saving avatar metadata to db: %w", err)
 	}
@@ -96,12 +96,12 @@ func (s *AvatarService) CreateAvatar(ctx context.Context, avatar *models.Avatar,
 func (s *AvatarService) cleanupFailedCreation(ctx context.Context, avatar *models.Avatar) {
 	// Best-effort hard delete from DB. Errors are ignored to preserve the original Kafka error.
 	if delErr := s.repo.HardDeleteAvatar(ctx, avatar.ID); delErr != nil {
-		s.logger.Error("failed to cleanup DB record during rollback", zap.String("avatar_id", avatar.ID), zap.Error(delErr))
+		s.logger.Error("failed to cleanup DB record during rollback", "avatar_id", avatar.ID, "error", delErr)
 	}
 
 	// Best-effort deletion from S3.
 	if delErr := s.s3.DeleteObject(ctx, s.bucket, avatar.OriginalS3Key); delErr != nil {
-		s.logger.Error("failed to cleanup S3 object during rollback", zap.String("avatar_id", avatar.ID), zap.String("s3_key", avatar.OriginalS3Key), zap.Error(delErr))
+		s.logger.Error("failed to cleanup S3 object during rollback", "avatar_id", avatar.ID, "s3_key", avatar.OriginalS3Key, "error", delErr)
 	}
 }
 

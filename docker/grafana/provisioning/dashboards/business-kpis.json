@@ -1,0 +1,95 @@
+{
+  "title": "GophProfile Business KPIs",
+  "annotations": {
+    "list": [
+      {
+        "built-in": "dashboard-uid"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 12},
+      "id": 1,
+      "type": "timeseries",
+      "title": "Upload Rate",
+      "targets": [
+        {
+          "expr": "rate(avatars_uploads_total[5m])",
+          "legendFormat": "Загрузки в минуту"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 12},
+      "id": 2,
+      "type": "timeseries",
+      "title": "Upload Duration",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(avatars_upload_duration_seconds_bucket[5m]))",
+          "legendFormat": "95-й перцентиль времени загрузки (секунды)"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 12},
+      "id": 3,
+      "type": "stat",
+      "title": "Storage Used",
+      "targets": [
+        {
+          "expr": "sum by (user_id) (avatars_storage_bytes)",
+          "legendFormat": "Используемое место (по юзерам)"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 6, "w": 12},
+      "id": 4,
+      "type": "stat",
+      "title": "DB Connections",
+      "targets": [
+        {
+          "expr": "db_open_connections",
+          "legendFormat": "Открытых соединений"
+        },
+        {
+          "expr": "db_idle_connections",
+          "legendFormat": "Свободных соединений"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["gophprofile", "business-kpis"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  }
+}

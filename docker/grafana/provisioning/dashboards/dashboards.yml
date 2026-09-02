@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: 'default'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      # Grafana will look for JSON files in this directory
+      path: /var/lib/grafana/dashboards

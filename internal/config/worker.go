@@ -7,24 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
-)
-
-const (
-	DefaultListenAddr        string        = ":8080"
-	DefaultProcessingTimeout time.Duration = 60 * time.Second
-	DefaultReadTimeout       time.Duration = 5 * time.Second
-	DefaultReadHeaderTimeout time.Duration = 5 * time.Second
-	DefaultWriteTimeout      time.Duration = 10 * time.Second
-	DefaultIdleTimeout       time.Duration = 30 * time.Second
-	DefaultWebStaticDir                    = "./web/static/"
-	DefaultApplyMigrations   bool          = false
 )
 
 type (
-	// serverConfigJSON is used only for JSON file unmarshaling
-	serverConfigJSON struct {
-		Address                  string `json:"address,omitempty"`
+	// workerConfigJSON is used only for JSON file unmarshaling
+	workerConfigJSON struct {
 		S3Address                string `json:"s3_address,omitempty"`
 		S3UseSSL                 bool   `json:"s3_use_ssl,omitempty"`
 		S3AccessKey              string `json:"s3_access_key,omitempty"`
@@ -34,80 +21,34 @@ type (
 		KafkaBrokers             string `json:"kafka_brokers,omitempty"`
 		KafkaTopic               string `json:"kafka_topic,omitempty"`
 		KafkaGroupID             string `json:"kafka_group_id,omitempty"`
-		ApplyMigrations          bool   `json:"apply_migrations"`
 		LoggerType               string `json:"logger_type"`
 		OTELExporterOTLPEndpoint string `json:"otel_exporter_otlp_endpoint,omitempty"`
-
-		TLS *struct {
-			CertFile string `json:"cert_file,omitempty"`
-			KeyFile  string `json:"key_file,omitempty"`
-		} `json:"tls,omitempty"`
 	}
 
-	// Server configuration struct
-	ServerConfig struct {
-		LoggerType               string
-		ListenAddr               string
-		ProcessingTimeout        time.Duration
-		ReadTimeout              time.Duration
-		ReadHeaderTimeout        time.Duration
-		WriteTimeout             time.Duration
-		IdleTimeout              time.Duration
-		GracefullShutdownTimeout time.Duration
-		PsqlDSN                  string
-		WebStaticDir             string
-		TLSConfig                *TLSConfig
-		CompressionThreshold     int
-		ApplyMigrations          bool
-		S3                       *S3
-		Kafka                    *Kafka
-		Otel                     *Otel
-	}
-
-	// TLSConfig contains paths to TLS certificates.
-	TLSConfig struct {
-		CertFile string
-		KeyFile  string
+	// Worker configuration struct
+	WorkerConfig struct {
+		LoggerType           string
+		PsqlDSN              string
+		CompressionThreshold int
+		S3                   *S3
+		Kafka                *Kafka
+		Otel                 *Otel
 	}
 )
 
-// GetDefaultServerConfig returns the default server configuration
-func GetDefaultServerConfig() *ServerConfig {
-	return &ServerConfig{
-		LoggerType:               DefaultLoggerType,
-		ListenAddr:               DefaultListenAddr,
-		ProcessingTimeout:        DefaultProcessingTimeout,
-		ReadTimeout:              DefaultReadTimeout,
-		ReadHeaderTimeout:        DefaultReadHeaderTimeout,
-		WriteTimeout:             DefaultWriteTimeout,
-		IdleTimeout:              DefaultIdleTimeout,
-		GracefullShutdownTimeout: DefaultGracefullShutdownTimeout,
-		PsqlDSN:                  DefaultPsqlDSN,
-		WebStaticDir:             DefaultWebStaticDir,
-		ApplyMigrations:          DefaultApplyMigrations,
-		S3:                       getDefaultS3(),
-		Kafka:                    getDefaultKafka(),
-		Otel:                     getDefaultOtel(),
+// GetDefaultWorkerConfig returns the default worker configuration
+func GetDefaultWorkerConfig() *WorkerConfig {
+	return &WorkerConfig{
+		LoggerType: DefaultLoggerType,
+		PsqlDSN:    DefaultPsqlDSN,
+		S3:         getDefaultS3(),
+		Kafka:      getDefaultKafka(),
+		Otel:       getDefaultOtel(),
 	}
 }
 
-// Validate validates the server configuration and returns error if its occurred
-func (c *ServerConfig) Validate() error {
-	if err := ValidateAddr(c.ListenAddr); err != nil {
-		return err
-	}
-	if c.S3.ListenAddr != "" {
-		if err := ValidateAddr(c.S3.ListenAddr); err != nil {
-			return err
-		}
-	}
-
-	if c.TLSConfig != nil {
-		if (c.TLSConfig.CertFile != "" && c.TLSConfig.KeyFile == "") || (c.TLSConfig.CertFile == "" && c.TLSConfig.KeyFile != "") {
-			return errors.New("both TLS certificate and key files must be provided")
-		}
-	}
-
+// Validate validates the worker configuration and returns error if its occurred
+func (c *WorkerConfig) Validate() error {
 	if c.LoggerType != "" {
 		if _, ok := validLogTypes[c.LoggerType]; !ok {
 			return errors.New("invalid logger type. Supported types are zap and slog")
@@ -118,8 +59,7 @@ func (c *ServerConfig) Validate() error {
 }
 
 // UpdateFromEnvironment updates settings from ENV variables
-func (c *ServerConfig) UpdateFromEnvironment() error {
-	c.ListenAddr = GetEnvOrFallback("ADDRESS", c.ListenAddr)
+func (c *WorkerConfig) UpdateFromEnvironment() error {
 	c.PsqlDSN = GetEnvOrFallback("DATABASE_DSN", c.PsqlDSN)
 	c.S3.ListenAddr = GetEnvOrFallback("S3_ENDPOINT", c.S3.ListenAddr)
 	c.S3.UseSSL = GetEnvOrFallback("S3_USE_SSL", c.S3.UseSSL)
@@ -129,29 +69,17 @@ func (c *ServerConfig) UpdateFromEnvironment() error {
 	c.Kafka.Brokers = GetEnvOrFallback("KAFKA_BROKERS", c.Kafka.Brokers)
 	c.Kafka.Topic = GetEnvOrFallback("KAFKA_TOPIC", c.Kafka.Topic)
 	c.Kafka.GroupID = GetEnvOrFallback("KAFKA_GROUP_ID", c.Kafka.GroupID)
-	c.ApplyMigrations = GetEnvOrFallback("APPLY_DB_MIGRATIONS", c.ApplyMigrations)
 	c.LoggerType = GetEnvOrFallback("LOGGER_TYPE", c.LoggerType)
 	c.Otel.ExporterOTLPEndpoint = GetEnvOrFallback("OTEL_EXPORTER_OTLP_ENDPOINT", c.Otel.ExporterOTLPEndpoint)
-
-	tlsCertFile := GetEnvOrFallback("TLS_CERT_FILE", "")
-	tlsKeyFile := GetEnvOrFallback("TLS_KEY_FILE", "")
-	if tlsCertFile != "" || tlsKeyFile != "" {
-		c.TLSConfig = &TLSConfig{
-			CertFile: tlsCertFile,
-			KeyFile:  tlsKeyFile,
-		}
-	}
 
 	return nil
 }
 
 // UpdateFromCLIArgs updates settings from CLI arguments
-func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) error {
-	flagSet.BoolVar(&c.ApplyMigrations, "apply-db-migrations", c.ApplyMigrations, "applies database migrations on server start")
+func (c *WorkerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) error {
 	flagSet.BoolVar(&c.S3.UseSSL, "s3-use-ssl", c.S3.UseSSL, "turns on usage of SSL for S3 connections")
 
 	flagSet.StringVar(&c.PsqlDSN, "d", c.PsqlDSN, "SQL database DSN string")
-	flagSet.StringVar(&c.ListenAddr, "a", c.ListenAddr, "server listen address via HTTP")
 	flagSet.StringVar(&c.S3.ListenAddr, "g", c.S3.ListenAddr, "S3 listen address")
 	flagSet.StringVar(&c.S3.AccessKey, "s3-access-key", c.S3.AccessKey, "S3 access key")
 	flagSet.StringVar(&c.S3.SecretKey, "s3-secret-key", c.S3.SecretKey, "S3 secret key")
@@ -162,12 +90,6 @@ func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 	flagSet.StringVar(&c.LoggerType, "logger-type", c.LoggerType, "logger type: zap, slog (default)")
 	flagSet.StringVar(&c.Otel.ExporterOTLPEndpoint, "otel-endpoint", c.Otel.ExporterOTLPEndpoint, "OTLP exporter endpoint (e.g., jaeger:4317)")
 
-	// Using temporary variables to prevent nil pointer dereference if TLSConfig is nil
-	var tlsCertFile string
-	var tlsKeyFile string
-	flagSet.StringVar(&tlsCertFile, "tls-cert", "", "path to TLS certificate file")
-	flagSet.StringVar(&tlsKeyFile, "tls-key", "", "path to TLS private key file")
-
 	var dummy string
 	flagSet.StringVar(&dummy, "c", "", "path to configuration file")
 	flagSet.StringVar(&dummy, "config", "", "path to the configurtion file")
@@ -176,20 +98,11 @@ func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 		return err
 	}
 
-	if tlsCertFile != "" || tlsKeyFile != "" {
-		c.TLSConfig = &TLSConfig{
-			CertFile: tlsCertFile,
-			KeyFile:  tlsKeyFile,
-		}
-	} else {
-		c.TLSConfig = nil
-	}
-
 	return nil
 }
 
 // UpdateFromFile checks the config file, and if it exists then tries to parse it
-func (c *ServerConfig) UpdateFromFile(configFile string) error {
+func (c *WorkerConfig) UpdateFromFile(configFile string) error {
 	fileHandler, err := os.OpenFile(configFile, os.O_RDONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("can't read the configuration file %s: %w", configFile, err)
@@ -205,13 +118,9 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 		return nil
 	}
 
-	var jsonCfg serverConfigJSON
+	var jsonCfg workerConfigJSON
 	if err := json.Unmarshal(data, &jsonCfg); err != nil {
 		return err
-	}
-
-	if jsonCfg.Address != "" {
-		c.ListenAddr = jsonCfg.Address
 	}
 
 	if jsonCfg.DatabaseDSN != "" {
@@ -250,15 +159,6 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 		c.Kafka.GroupID = jsonCfg.KafkaGroupID
 	}
 
-	if jsonCfg.TLS != nil {
-		c.TLSConfig = &TLSConfig{
-			CertFile: jsonCfg.TLS.CertFile,
-			KeyFile:  jsonCfg.TLS.KeyFile,
-		}
-	} else {
-		c.TLSConfig = nil
-	}
-
 	if jsonCfg.LoggerType != "" {
 		c.LoggerType = jsonCfg.LoggerType
 	}
@@ -270,12 +170,12 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 	return nil
 }
 
-// Returns the instance of server configuration struct.
+// Returns the instance of worker configuration struct.
 //
 // Fills it's fields by using CLI arguments and environments.
 // ENV or CLI argument or the default values
-func NewServerConfig(flagSet *flag.FlagSet, args []string) (*ServerConfig, error) {
-	cfg := GetDefaultServerConfig()
+func NewWorkerConfig(flagSet *flag.FlagSet, args []string) (*WorkerConfig, error) {
+	cfg := GetDefaultWorkerConfig()
 	configFile := GetEnvOrFallback("CONFIG", ParseConfigPath(args))
 
 	if configFile != "" {

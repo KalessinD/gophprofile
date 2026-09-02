@@ -90,6 +90,8 @@ services:
       S3_USE_SSL: "false"
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: avatar-processing
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      YP_ENV: "prod"
     networks:
       - gophprofile
 
@@ -119,6 +121,8 @@ services:
       S3_USE_SSL: "false"
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: avatar-processing
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      YP_ENV: "prod"
     networks:
       - gophprofile
 
@@ -144,7 +148,7 @@ services:
       - gophprofile
 
   minio-setup:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     container_name: gophprofile-minio-setup
     depends_on:
       minio:
@@ -203,9 +207,198 @@ services:
     networks:
     - gophprofile
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: gophprofile-jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - gophprofile
+
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0
+    container_name: gophprofile-opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - DISABLE_PERFORMANCE_ANALYZER=true
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        rm -rf /usr/share/opensearch/plugins/opensearch-performance-analyzer
+        exec /usr/share/opensearch/opensearch-docker-entrypoint.sh      
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - gophprofile
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.8.0
+    container_name: gophprofile-dashboards
+    ports:
+      - "5601:5601"
+    environment:
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+      - OPENSEARCH_DASHBOARDS_SECURITY_ENABLED=false
+      - OPENSEARCH_HOSTS=http://opensearch:9200
+    depends_on:
+      - opensearch
+    networks:
+      - gophprofile
+
+  dashboards-setup:
+    image: curlimages/curl:8.21.0
+    container_name: gophprofile-dashboards-setup
+    depends_on:
+      opensearch-dashboards:
+        condition: service_started
+    volumes:
+      - ./docker/opensearch-dashboards/setup-data-view.sh:/setup.sh
+    entrypoint: ["/bin/sh", "/setup.sh"]
+    networks:
+      - gophprofile
+
+  fluent-bit:
+    image: fluent/fluent-bit:5.1.1
+    container_name: gophprofile-fluent-bit
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./docker/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - fluent_bit_state:/var/log
+    depends_on:
+      - opensearch
+    networks:
+      - gophprofile
+
+  prometheus:
+    image: prom/prometheus:v3
+    container_name: gophprofile-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - gophprofile
+
+  grafana:
+    image: grafana/grafana:13.0-slim
+    container_name: gophprofile-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./docker/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/provisioning/dashboards:/var/lib/grafana/dashboards
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_PROVISIONING_PATH: /var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+      - opensearch
+    networks:
+      - gophprofile
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    container_name: gophprofile-kafka-exporter
+    ports:
+      - "9308:9308" # Default port for kafka-exporter
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_EXPORTER_PORT: "9308"
+      KAFKA_LOG_DIR: /var/log/kafka-exporter
+    volumes:
+      - kafka_data:/var/log/kafka-exporter
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - gophprofile
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:nightly-386
+    container_name: gophprofile-otel-collector
+    command: ["--config=/etc/otel-collector/config.yaml"]
+    ports:
+      - "8889:8889" # Prometheus metrics endpoint
+      - "13133:13133" # health check
+    volumes:
+      - ./docker/otel-collector/config.yaml:/etc/otel-collector/config.yaml
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:13133']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      jaeger:
+        condition: service_started
+    networks:
+      - gophprofile
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.0
+    container_name: gophprofile-alertmanager
+    ports:
+      - "9093:9093"
+    depends_on:
+      - prometheus
+    volumes:
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+      - gophprofile
+
+  akhq:
+    image: tchiotludo/akhq:0.28.0
+    container_name: gophprofile-akhq
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8080" # UI available at http://localhost:8081
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            gophprofile-kafka:
+              properties:
+                bootstrap.servers: "kafka:9092"
+    networks:
+      - gophprofile
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: gophprofile-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - gophprofile
+
 volumes:
   postgres_data:
   kafka_data:
+  opensearch_data:
+  fluent_bit_state:
+  prometheus_data:
+  grafana_data:
+  loki_data:
 
 networks:
   gophprofile:

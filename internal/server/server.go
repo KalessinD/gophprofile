@@ -7,78 +7,24 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/KalessinD/gophprofile/internal/broker/kafka"
+	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/handlers"
+	"github.com/KalessinD/gophprofile/internal/logger"
 	mw "github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
 	"github.com/KalessinD/gophprofile/internal/repositories/s3"
 	"github.com/KalessinD/gophprofile/internal/services"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 
 	"github.com/go-chi/cors"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-var (
-	maxConnectionRetries           = 3
-	waitIntervalBetweenConnections = time.Second * 3
-)
-
-func PsqlConnect(ctx context.Context, dsn string, log *zap.Logger) (*sql.DB, error) {
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		log.Error("Failed to parse DSN", zap.Error(err))
-		return nil, fmt.Errorf("parsing DSN: %w", err)
-	}
-
-	var lastErr error
-
-	for attempt := range maxConnectionRetries {
-		lastErr = db.PingContext(ctx)
-		if lastErr == nil {
-			log.Info("Successfully connected to PostgreSQL", zap.Int("attempt", attempt))
-			break
-		}
-
-		log.Warn("Failed to connect to PostgreSQL, retrying...",
-			zap.Int("attempt", attempt),
-			zap.Int("max_retries", maxConnectionRetries),
-			zap.Duration("interval", waitIntervalBetweenConnections),
-			zap.Error(lastErr),
-		)
-
-		if attempt < maxConnectionRetries {
-			select {
-			case <-ctx.Done():
-				log.Warn("Database connection canceled by context during retry")
-				db.Close()
-				return nil, ctx.Err()
-			case <-time.After(waitIntervalBetweenConnections):
-				// Время вышло, идем на следующий круг
-			}
-		}
-	}
-
-	if lastErr != nil {
-		log.Error("Failed to connect to PostgreSQL after all retries", zap.Error(lastErr))
-		db.Close()
-		return nil, fmt.Errorf("db connection failed after %d retries: %w", maxConnectionRetries, lastErr)
-	}
-
-	go func() {
-		<-ctx.Done()
-		log.Info("Closing database connection due to context cancellation")
-		db.Close()
-	}()
-
-	return db, nil
-}
-
-func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
+func GetBaseRouter(cfg *config.ServerConfig, log logger.Logger) *chi.Mux {
 	router := chi.NewRouter()
 
 	// Standard middlewares
@@ -101,7 +47,7 @@ func GetBaseRouter(cfg *config.ServerConfig, log *zap.Logger) *chi.Mux {
 }
 
 // NewRouter initializes dependencies and configures HTTP routes.
-func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, pgdb *sql.DB) (http.Handler, error) {
+func NewRouter(ctx context.Context, cfg *config.ServerConfig, log logger.Logger, pgdb *sql.DB) (http.Handler, error) {
 	var err error
 
 	router := GetBaseRouter(cfg, log)
@@ -169,9 +115,12 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log *zap.Logger, p
 	}
 
 	router.HandleFunc("/web/upload", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Type", common.TextHTTPContentType)
 		http.ServeFile(w, r, staticIndexPath)
 	})
 
-	return router, nil
+	// Wrap the Chi router with OTel HTTP middleware for automatic tracing of all requests
+	otelRouter := otelhttp.NewHandler(router, common.OtelHTTPName)
+
+	return otelRouter, nil
 }

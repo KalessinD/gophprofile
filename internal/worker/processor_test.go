@@ -2,6 +2,7 @@ package worker // nolint: testpackage
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"image"
 	"image/jpeg"
@@ -10,17 +11,23 @@ import (
 	"testing"
 
 	"github.com/KalessinD/gophprofile/internal/broker"
+	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/worker/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"go.uber.org/zap"
 )
 
 const (
 	testBucket = "test-bucket"
 )
+
+func TestMain(m *testing.M) {
+	_ = metrics.Init(context.Background())
+	m.Run()
+}
 
 // setupProcessorTest is a helper to initialize mocks and the processor.
 func setupProcessorTest(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepository, *mocks.MockObjectStorage, *ImageProcessor) {
@@ -29,7 +36,7 @@ func setupProcessorTest(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepo
 
 	repoMock := mocks.NewMockAvatarRepository(ctrl)
 	s3Mock := mocks.NewMockObjectStorage(ctrl)
-	proc := NewImageProcessor(repoMock, s3Mock, testBucket, zap.NewNop())
+	proc := NewImageProcessor(repoMock, s3Mock, testBucket, logger.NewNopLogger())
 
 	return ctrl, repoMock, s3Mock, proc
 }

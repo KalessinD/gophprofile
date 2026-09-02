@@ -1,5 +1,4 @@
 {
-  "address": ":8080",
   "database_dsn": "postgres://gophprofile:secret@db:5432/gophprofile?sslmode=disable",
   "s3_address": "minio:9000",
   "s3_use_ssl": false,
@@ -9,8 +8,5 @@
   "kafka_brokers": "kafka:9092",
   "kafka_topic": "avatar-processing",
   "kafka_group_id": "gophprofile-worker-group",
-  "apply_migrations": false,
-  "logger_type": "slog",
-  "tls-cert": "certs/server.crt",
-  "tls-key": "certs/server.key"
+  "logger_type": "slog"
 }

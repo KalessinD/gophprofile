@@ -1,0 +1,39 @@
+groups:
+  - name: avatar-service-alerts
+    rules:
+      # Safe division: checks if error rate > 10% AND there is actual traffic to avoid NaN errors
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(avatars_uploads_total{status="error"}[5m]))
+            /
+            sum(rate(avatars_uploads_total[5m]))
+          ) > 0.1
+          and
+          sum(rate(avatars_uploads_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on avatar uploads"
+          description: "More than 10% of uploads are failing."
+
+      # Fixed histogram quantile: uses the _bucket metric suffix
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(avatars_upload_duration_seconds_bucket[5m])) > 5
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High upload response time"
+          description: "95th percentile of upload duration is over 5 seconds."
+
+      # Absolute error count trigger
+      - alert: UploadErrorsDetected
+        expr: increase(avatars_uploads_total{status="error"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Avatar upload errors detected"
+          description: "At least one upload error occurred in the last 5 minutes."

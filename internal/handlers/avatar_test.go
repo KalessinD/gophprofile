@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/KalessinD/gophprofile/internal/handlers"
+	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/services"
@@ -20,13 +22,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"go.uber.org/zap"
 )
 
 const (
 	testBucket = "test-bucket"
 	testUserID = "user-123"
 )
+
+func TestMain(m *testing.M) {
+	_ = metrics.Init(context.Background())
+	m.Run()
+}
 
 // setupTestEnv is a helper to initialize mocks, service, and handler.
 // nolint: unparam
@@ -38,7 +44,7 @@ func setupTestEnv(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepository
 	s3Mock := mocks.NewMockObjectStorage(ctrl)
 	prodMock := mocks.NewMockAvatarProducer(ctrl)
 
-	svc := services.NewAvatarService(repoMock, s3Mock, prodMock, testBucket, zap.NewNop())
+	svc := services.NewAvatarService(repoMock, s3Mock, prodMock, testBucket, logger.NewNopLogger())
 
 	// Mock URL builder for tests
 	mockURLBuilder := func(key string) string { return "http://localhost/" + key }
@@ -51,7 +57,7 @@ func setupTestEnv(t *testing.T) (*gomock.Controller, *mocks.MockAvatarRepository
 // nolint: unparam
 func addUserAndLoggerToContext(req *http.Request, userID string) *http.Request {
 	ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
-	ctx = context.WithValue(ctx, middleware.LoggerKey, zap.NewNop())
+	ctx = context.WithValue(ctx, middleware.LoggerKey, logger.NewNopLogger())
 	return req.WithContext(ctx)
 }
 

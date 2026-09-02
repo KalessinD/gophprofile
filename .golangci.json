@@ -85,7 +85,14 @@
           ],
           "path": "internal/models/avatar.go",
           "text": "tag is not aligned"
-        }       
+        },
+        {
+          "linters": [
+            "unparam"
+          ],
+          "path": "internal/logger/zap.go",
+          "text": "newConsoleLogger"
+        }    
       ]      
     },
     "settings": {
@@ -112,7 +119,7 @@
             "deny": [
               {
                 "desc": "use zap logger instead",
-                "pkg": "log"
+                "pkg": "xlog"
               }
             ]
           }

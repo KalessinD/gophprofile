@@ -7,6 +7,8 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/KalessinD/gophprofile/internal/broker"
+	"github.com/dnwe/otelsarama"
+	"go.opentelemetry.io/otel"
 )
 
 type (
@@ -17,21 +19,24 @@ type (
 	}
 )
 
-// NewProducer initializes a new Kafka synchronous producer.
+// NewProducer initializes a new Kafka synchronous producer wrapped with OTel tracing.
 func NewProducer(brokers string, topic string, saramaCfg *sarama.Config) (*Producer, error) {
 	producer, err := sarama.NewSyncProducer([]string{brokers}, saramaCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating kafka producer: %w", err)
 	}
 
+	// Wrap the producer to enable automatic span creation and context injection
+	wrappedProducer := otelsarama.WrapSyncProducer(saramaCfg, producer)
+
 	return &Producer{
-		producer: producer,
+		producer: wrappedProducer,
 		topic:    topic,
 	}, nil
 }
 
 // PublishAvatarCreatedEvent serializes the event and sends it to the Kafka topic synchronously.
-func (p *Producer) PublishAvatarCreatedEvent(_ context.Context, avatarID string, userID string, s3Key string) error {
+func (p *Producer) PublishAvatarCreatedEvent(ctx context.Context, avatarID string, userID string, s3Key string) error {
 	event := &broker.AvatarEvent{
 		AvatarID: avatarID,
 		UserID:   userID,
@@ -47,6 +52,10 @@ func (p *Producer) PublishAvatarCreatedEvent(_ context.Context, avatarID string,
 		Topic: p.topic,
 		Value: sarama.ByteEncoder(eventBytes),
 	}
+
+	// Inject the current trace context into the Kafka message headers using standard OTel API
+	carrier := otelsarama.NewProducerMessageCarrier(message)
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
 
 	_, _, err = p.producer.SendMessage(message)
 	if err != nil {

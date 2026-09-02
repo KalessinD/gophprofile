@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/services"
 	"github.com/KalessinD/gophprofile/internal/services/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"go.uber.org/zap"
 )
 
 const testBucket = "test-bucket"
@@ -23,7 +23,7 @@ func setupServiceTest(t *testing.T) (*gomock.Controller, *mocks.MockAvatarReposi
 	repo := mocks.NewMockAvatarRepository(ctrl)
 	s3 := mocks.NewMockObjectStorage(ctrl)
 	prod := mocks.NewMockAvatarProducer(ctrl)
-	svc := services.NewAvatarService(repo, s3, prod, testBucket, zap.NewNop())
+	svc := services.NewAvatarService(repo, s3, prod, testBucket, logger.NewNopLogger())
 	return ctrl, repo, s3, prod, svc
 }
 

@@ -3,19 +3,22 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/go-chi/chi/middleware"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type (
+	// responseData holds the status code and response size for logging purposes.
 	responseData struct {
 		status int
 		size   int
 	}
 
+	// loggingResponseWriter is a custom http.ResponseWriter that wraps the original
+	// response writer to intercept and record response data.
 	loggingResponseWriter struct {
 		http.ResponseWriter
 		responseData *responseData
@@ -24,65 +27,55 @@ type (
 
 const LoggerKey ContextKey = "logger"
 
-// Extracts Logger from context
-func GetLogger(ctx context.Context) *zap.Logger {
-	if log, ok := ctx.Value(LoggerKey).(*zap.Logger); ok {
+// GetLogger extracts the Logger instance from the provided context.
+// If no logger is found, it returns nil.
+func GetLogger(ctx context.Context) logger.Logger {
+	if log, ok := ctx.Value(LoggerKey).(logger.Logger); ok {
 		return log
 	}
 	return nil
 }
 
-/*
-Добавляет логгер в контекст
-*/
-func AddLoggerToContext(parentCtx context.Context, log *zap.Logger) context.Context {
+// AddLoggerToContext adds a Logger instance to the parent context.
+func AddLoggerToContext(parentCtx context.Context, log logger.Logger) context.Context {
 	return context.WithValue(parentCtx, LoggerKey, log)
 }
 
-/*
-Обёртка над http.ResponseWriter.Write
-*/
+// Write implements io.Writer. It writes to the underlying ResponseWriter
+// and accumulates the total number of bytes written.
 func (r *loggingResponseWriter) Write(b []byte) (int, error) {
 	size, err := r.ResponseWriter.Write(b)
 	r.responseData.size += size
 	return size, err
 }
 
-/*
-Обёртка над http.ResponseWriter.Writeheader
-*/
+// WriteHeader implements http.ResponseWriter. It delegates the status code
+// to the underlying ResponseWriter and records it for logging.
 func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
 	r.responseData.status = statusCode
 }
 
-/*
-Из HTTP заголовков получает тип сжатия и добавляет его в zap-поле для логирования
-*/
-func GetEncodingField(prefix, name string, header http.Header) zap.Field {
-	enc := header[name]
-	if len(enc) == 0 {
-		return zap.Skip()
-	}
-	return zap.Strings(prefix+strings.ToLower(name), enc)
-}
-
-/*
-Мидлварь для добавления zap-логера с кастомными полями в контекст.
-
-Добавляемые поля:
-  - method - HTTP method
-  - path - HTTP path
-  - remote_addr - remote IP address
-  - duration - время выполнения основной части запроса
-  - status - HTTP status code
-  - response_size - HTTP response size
-  - request-content-encoding - HTTP заголовок Content-Encoding из запроса
-  - request-accept-encoding - HTTP заголовок Accept-Encoding из запроса
-  - responsecontent-encoding - HTTP заголовок Content-Encoding из ответа
-  - response-accept-encoding - HTTP заголовок Accept-Encoding из ответа
-*/
-func Logger(log *zap.Logger) func(http.Handler) http.Handler {
+// Logger returns a middleware that injects a structured logger with contextual
+// fields into the request context and logs the request completion.
+//
+// Injected fields (available to downstream handlers via GetLogger):
+//   - request_id: Unique identifier for the request.
+//   - trace_id: OpenTelemetry Trace ID for log correlation with Jaeger (if valid).
+//   - span_id: OpenTelemetry Span ID for log correlation with Jaeger (if valid).
+//
+// Logged fields upon request completion:
+//   - method: HTTP method.
+//   - path: HTTP path.
+//   - remote_addr: Remote IP address.
+//   - duration: Time taken to process the request.
+//   - status: HTTP response status code.
+//   - response_size: Size of the HTTP response in bytes.
+//   - request-content-encoding: Content-Encoding header from the request.
+//   - request-accept-encoding: Accept-Encoding header from the request.
+//   - response-Content-Encoding: Content-Encoding header of the response.
+//   - response-Accept-Encoding: Accept-Encoding header of the response.
+func Logger(log logger.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -97,25 +90,33 @@ func Logger(log *zap.Logger) func(http.Handler) http.Handler {
 				responseData:   responseData,
 			}
 
-			extLogger := log.With(
-				zap.String("request_id", middleware.GetReqID(r.Context())),
-			)
+			// Extract OpenTelemetry trace context for log correlation
+			spanContext := trace.SpanContextFromContext(r.Context())
+			logWithFields := log.With("request_id", middleware.GetReqID(r.Context()))
 
-			ctx := AddLoggerToContext(r.Context(), extLogger)
+			// Only add trace fields if a valid trace context exists
+			if spanContext.IsValid() {
+				logWithFields = logWithFields.With(
+					"trace_id", spanContext.TraceID().String(),
+					"span_id", spanContext.SpanID().String(),
+				)
+			}
+
+			ctx := AddLoggerToContext(r.Context(), logWithFields)
 
 			next.ServeHTTP(lw, r.WithContext(ctx))
 
-			extLogger.Info("request completed",
-				zap.String("method", r.Method),
-				zap.String("path", r.URL.Path),
-				zap.String("remote_addr", r.RemoteAddr),
-				zap.Duration("duration", time.Since(start)),
-				zap.Int("status", responseData.status),
-				zap.Int("response_size", responseData.size),
-				zap.Strings("request-content-encoding", r.Header.Values("Content-Encoding")),
-				zap.Strings("request-accept-encoding", r.Header.Values("Accept-Encoding")),
-				GetEncodingField("response-", "Content-Encoding", w.Header()),
-				GetEncodingField("response-", "Accept-Encoding", w.Header()),
+			GetLogger(ctx).Info("request completed",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", r.RemoteAddr,
+				"duration", time.Since(start),
+				"status", responseData.status,
+				"response_size", responseData.size,
+				"request-content-encoding", r.Header.Values("Content-Encoding"),
+				"request-accept-encoding", r.Header.Values("Accept-Encoding"),
+				"response-Content-Encoding", w.Header().Values("Content-Encoding"),
+				"response-Accept-Encoding", w.Header().Values("Accept-Encoding"),
 			)
 		})
 	}

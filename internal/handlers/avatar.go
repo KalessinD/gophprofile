@@ -6,13 +6,17 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/KalessinD/gophprofile/internal/common"
+	"github.com/KalessinD/gophprofile/internal/logger"
+	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/middleware"
 	"github.com/KalessinD/gophprofile/internal/models"
 	"github.com/KalessinD/gophprofile/internal/services"
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -116,24 +120,36 @@ func (h *AvatarHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	logger := middleware.GetLogger(ctx).Sugar()
+	appLogger := middleware.GetLogger(ctx)
+	m := metrics.Instance()
+
+	// Start timing the upload process
+	start := time.Now()
 
 	err = h.service.CreateAvatar(ctx, newAvatar, sizeTrackingReader)
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
-		logger.Debugf("can't upload the avatar: %v", err)
+		// Record metric on failure
+		m.UploadsTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+		m.UploadDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attribute.String("status", "error")))
+
+		appLogger.Debugf("can't upload the avatar: %v", err)
 		http.Error(w, message, status)
 
 		return
 	}
+
+	// Record metric on success
+	m.UploadsTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "success")))
+	m.UploadDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attribute.String("status", "success")))
 
 	w.Header().Set("Content-Type", common.AppJSONContentType)
 	w.WriteHeader(http.StatusCreated)
 
 	response := NewUploadResponse(newAvatar, h.s3URLBuilder(newAvatar.OriginalS3Key))
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		logger.Errorf("can't encode the avatar: %v", err)
+		appLogger.Errorf("can't encode the avatar: %v", err)
 		return
 	}
 }
@@ -149,7 +165,7 @@ Possible response codes:
 func (h *AvatarHandler) GetAvatar(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	avatarID := chi.URLParam(r, "avatar_id")
-	logger := middleware.GetLogger(ctx)
+	appLogger := middleware.GetLogger(ctx)
 	requestedSize := r.URL.Query().Get("size")
 	stream, avatar, err := h.service.GetAvatarFileStream(ctx, avatarID, requestedSize)
 
@@ -160,12 +176,12 @@ func (h *AvatarHandler) GetAvatar(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
-		logger.Sugar().Debugf("can't retrieve the avatar: %v", err)
+		appLogger.Debugf("can't retrieve the avatar: %v", err)
 		http.Error(w, message, status)
 		return
 	}
 
-	h.writeImageResponse(w, stream, avatar, avatarID, logger)
+	h.writeImageResponse(w, stream, avatar, avatarID, appLogger)
 }
 
 /*
@@ -183,7 +199,7 @@ func (h *AvatarHandler) GetAvatarMetadata(w http.ResponseWriter, r *http.Request
 	avatar, err := h.service.GetAvatarByID(ctx, avatarID)
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
-		middleware.GetLogger(ctx).Sugar().Debugf("can't retrieve the avatar: %v", err)
+		middleware.GetLogger(ctx).Debugf("can't retrieve the avatar: %v", err)
 		http.Error(w, message, status)
 		return
 	}
@@ -201,7 +217,7 @@ func (h *AvatarHandler) GetAvatarMetadata(w http.ResponseWriter, r *http.Request
 
 	response := NewMetadataResponse(avatar, thumb100URL, thumb300URL)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		middleware.GetLogger(ctx).Sugar().Errorf("can't encode the avatar: %v", err)
+		middleware.GetLogger(ctx).Errorf("can't encode the avatar: %v", err)
 		return
 	}
 }
@@ -224,7 +240,7 @@ func (h *AvatarHandler) DeleteAvatar(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
-		middleware.GetLogger(ctx).Sugar().Debugf("can't delete user's avatar: %v", err)
+		middleware.GetLogger(ctx).Debugf("can't delete user's avatar: %v", err)
 		http.Error(w, message, status)
 
 		return
@@ -253,7 +269,7 @@ func (h *AvatarHandler) GetUserAvatar(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
-		middleware.GetLogger(ctx).Sugar().Debugf("can't get user's avatar: %v", err)
+		middleware.GetLogger(ctx).Debugf("can't get user's avatar: %v", err)
 		http.Error(w, message, status)
 
 		return
@@ -261,7 +277,7 @@ func (h *AvatarHandler) GetUserAvatar(w http.ResponseWriter, r *http.Request) {
 
 	currentAvatar := avatars[0]
 	requestedSize := r.URL.Query().Get("size")
-	logger := middleware.GetLogger(ctx)
+	appLogger := middleware.GetLogger(ctx)
 	stream, avatar, err := h.service.GetAvatarFileStream(r.Context(), currentAvatar.ID, requestedSize)
 
 	if err == nil && (stream == nil || avatar == nil) {
@@ -271,13 +287,13 @@ func (h *AvatarHandler) GetUserAvatar(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
-		logger.Sugar().Debugf("can't get user's avatar: %v", err)
+		appLogger.Debug("can't get user's avatar", "error", err)
 		http.Error(w, message, status)
 
 		return
 	}
 
-	h.writeImageResponse(w, stream, avatar, currentAvatar.ID, logger)
+	h.writeImageResponse(w, stream, avatar, currentAvatar.ID, appLogger)
 }
 
 /*
@@ -291,7 +307,7 @@ Possible response codes:
 func (h *AvatarHandler) DeleteUserAvatar(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := chi.URLParam(r, "user_id")
-	logger := middleware.GetLogger(ctx).Sugar()
+	appLogger := middleware.GetLogger(ctx).Sugar()
 	avatars, err := h.service.GetAvatarsByUserID(ctx, userID)
 
 	if err == nil && len(avatars) == 0 {
@@ -301,7 +317,7 @@ func (h *AvatarHandler) DeleteUserAvatar(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
-		logger.Debugf("can't delete user's avatar: %v", err)
+		appLogger.Debugf("can't delete user's avatar: %v", err)
 		http.Error(w, message, status)
 
 		return
@@ -309,7 +325,7 @@ func (h *AvatarHandler) DeleteUserAvatar(w http.ResponseWriter, r *http.Request)
 
 	for _, avatar := range avatars {
 		if deleteErr := h.service.SoftDeleteAvatar(ctx, avatar.ID, userID); deleteErr != nil {
-			logger.Errorf("can't delete the avatar %s for user %s: %v", avatar.ID, userID, deleteErr)
+			appLogger.Errorf("can't delete the avatar %s for user %s: %v", avatar.ID, userID, deleteErr)
 		}
 	}
 
@@ -326,12 +342,12 @@ Possible response codes:
 func (h *AvatarHandler) GetUserAvatars(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	userID := chi.URLParam(r, "user_id")
-	logger := middleware.GetLogger(ctx).Sugar()
+	appLogger := middleware.GetLogger(ctx)
 	avatars, err := h.service.GetAvatarsByUserID(ctx, userID)
 	if err != nil {
 		status, message := h.defineResponseStatusByError(err)
 
-		logger.Debugf("can't get user's avatar: %v", err)
+		appLogger.Debugf("can't get user's avatar: %v", err)
 		http.Error(w, message, status)
 
 		return
@@ -341,13 +357,13 @@ func (h *AvatarHandler) GetUserAvatars(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if err := json.NewEncoder(w).Encode(avatars); err != nil {
-		logger.Errorf("can't encode avatars: %v", err)
+		appLogger.Errorf("can't encode avatars: %v", err)
 		return
 	}
 }
 
 // writeImageResponse streams the image data to the HTTP response and sets appropriate headers.
-func (h *AvatarHandler) writeImageResponse(w http.ResponseWriter, stream io.ReadCloser, avatar *models.Avatar, avatarID string, logger *zap.Logger) {
+func (h *AvatarHandler) writeImageResponse(w http.ResponseWriter, stream io.ReadCloser, avatar *models.Avatar, avatarID string, appLogger logger.Logger) {
 	defer stream.Close()
 
 	mimeType := "image/jpeg" // Default fallback according to TZ
@@ -362,7 +378,7 @@ func (h *AvatarHandler) writeImageResponse(w http.ResponseWriter, stream io.Read
 	header.Set("ETag", `"`+avatarID+`"`)
 
 	if _, err := io.Copy(w, stream); err != nil {
-		logger.Debug("can't write into stream", zap.Error(err))
+		appLogger.Debug("can't write into stream", "error", err)
 		return
 	}
 }
