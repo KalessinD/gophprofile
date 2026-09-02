@@ -14,6 +14,10 @@
 * **Chi Router**: Маршрутизация HTTP запросов.
 * **MinIO / AWS S3 SDK**: Хранение бинарных файлов (оригиналов и миниатюр).
 * **Apache Kafka**: Брокер сообщений для асинхронной обработки изображений.
+* **OpenTelemetry & Jaeger**: Инструментирование, сбор и визуализация распределенных трассировок (tracing).
+* **Prometheus & Grafana**: Сбор и визуализация метрик (metrics).
+* **Loki & OpenSearch + Fluent Bit**: Централизованный сбор, хранение и поиск логов (logging).
+* **AKHQ**: Веб-интерфейс для управления топиками и консьюмер-группами Kafka.
 * **Clean Architecture**: Разделение на слои (Handlers, Services, Repositories, Broker, Worker).
 * **Testcontainers**: Для интеграционного (e2e) тестирования.
 
@@ -66,11 +70,31 @@
 ```
 
 ### 2. Docker Compose
-Для запуска инфраструктуры (PostgreSQL, MinIO, Kafka и GophProfile) используйте:
+Для запуска полной инфраструктуры (БД, S3, Kafka, Observability стек и GophProfile) используйте:
 
 ```bash
 make build start
 ```
+
+### 3. Локальные сервисы и Observability
+После запуска (make start) доступны следующие веб-интерфейсы и API:
+
+#### Основные сервисы
+* GophProfile API & Web: http://localhost:8080
+* MinIO Web UI: http://localhost:9001 (логин/пароль: minioadmin / minioadmin)
+* AKHQ (Kafka UI): http://localhost:8081 (без авторизации)
+* PostgreSQL: localhost:6432 (пользователь/пароль/БД: gophprofile / secret / gophprofile)
+
+#### Observability (Мониторинг, Логи, Трейсы)
+* Grafana (Дашборды): http://localhost:3000 (логин/пароль: admin / admin)
+* Jaeger UI (Трейсы): http://localhost:16686
+* OpenSearch Dashboards (Логи): http://localhost:5601
+* Prometheus (Метрики): http://localhost:9090
+* Alertmanager (Алерты): http://localhost:9093
+* Loki API (Логи): http://localhost:3100/ready , http://localhost:3100/metrics (без UI, запросы выполняются через Grafana)
+* OpenSearch API: http://localhost:9200
+* OTel Collector Metrics: http://localhost:8889/metrics
+* Kafka Exporter Metrics: http://localhost:9308/metrics
 
 ## Тестирование
 
