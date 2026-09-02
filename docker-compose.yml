@@ -330,7 +330,7 @@ services:
       - gophprofile
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:nightly-386
     container_name: gophprofile-otel-collector
     command: ["--config=/etc/otel-collector/config.yaml"]
     ports:
@@ -380,6 +380,17 @@ services:
     networks:
       - gophprofile
 
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: gophprofile-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - gophprofile
+
 volumes:
   postgres_data:
   kafka_data:
@@ -387,6 +398,7 @@ volumes:
   fluent_bit_state:
   prometheus_data:
   grafana_data:
+  loki_data:
 
 networks:
   gophprofile:

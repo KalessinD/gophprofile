@@ -22,3 +22,9 @@ datasources:
       basicAuthUser: admin
       basicAuthPassword: admin
     editable: false
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false

@@ -13,8 +13,8 @@ curl -X POST "http://opensearch-dashboards:5601/api/saved_objects/index-pattern"
   -d '{
     "attributes": {
       "title": "gophprofile-logs*",
-      "timeFieldName": "time"
+      "timeFieldName": "@timestamp"
     }
-  }'
+  }' || true
 
 echo "Data View creation completed."
