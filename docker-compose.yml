@@ -391,6 +391,23 @@ services:
     networks:
       - gophprofile
 
+  pgadmin:
+    image: dpage/pgadmin4:9.17
+    container_name: gophprofile-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@gophprofile.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8082:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - gophprofile
+
 volumes:
   postgres_data:
   kafka_data:
@@ -399,6 +416,7 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  pgadmin_data:
 
 networks:
   gophprofile:
