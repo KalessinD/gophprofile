@@ -57,22 +57,22 @@ func (zl *ZapLogger) With(keysAndValues ...any) Logger {
 
 // Debug logs a message at DebugLevel with structured key-value pairs.
 func (zl *ZapLogger) Debug(msg string, keysAndValues ...any) {
-	zl.sugar.Debug(msg, keysAndValues)
+	zl.sugar.Debugw(msg, keysAndValues...)
 }
 
 // Info logs a message at InfoLevel with structured key-value pairs.
 func (zl *ZapLogger) Info(msg string, keysAndValues ...any) {
-	zl.sugar.Info(msg, keysAndValues)
+	zl.sugar.Infow(msg, keysAndValues...)
 }
 
 // Warn logs a message at WarnLevel with structured key-value pairs.
 func (zl *ZapLogger) Warn(msg string, keysAndValues ...any) {
-	zl.sugar.Warn(msg, keysAndValues)
+	zl.sugar.Warnw(msg, keysAndValues...)
 }
 
 // Error logs a message at ErrorLevel with structured key-value pairs.
 func (zl *ZapLogger) Error(msg string, keysAndValues ...any) {
-	zl.sugar.Error(msg, keysAndValues)
+	zl.sugar.Errorw(msg, keysAndValues...)
 }
 
 // Debugf logs a message at DebugLevel using fmt.Sprintf formatting.
