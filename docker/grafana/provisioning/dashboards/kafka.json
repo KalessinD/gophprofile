@@ -1,0 +1,125 @@
+{
+  "title": "GophProfile Kafka Monitoring",
+  "annotations": {
+    "list": [
+      {
+        "built-in": "dashboard-uid"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12},
+      "id": 1,
+      "type": "timeseries",
+      "title": "Consumer Group Lag (Лаг потребителей)",
+      "targets": [
+        {
+          "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag)",
+          "legendFormat": "{{consumergroup}} -> {{topic}}"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12},
+      "id": 2,
+      "type": "timeseries",
+      "title": "Topic Ingestion Rate (Скорость записи)",
+      "targets": [
+        {
+          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset[5m]))",
+          "legendFormat": "Запись в {{topic}}"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12},
+      "id": 3,
+      "type": "timeseries",
+      "title": "Consumer Processing Rate (Скорость чтения)",
+      "targets": [
+        {
+          "expr": "sum by (consumergroup, topic) (rate(kafka_consumergroup_current_offset[5m]))",
+          "legendFormat": "Чтение {{consumergroup}} -> {{topic}}"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 6},
+      "id": 4,
+      "type": "stat",
+      "title": "Active Kafka Brokers",
+      "targets": [
+        {
+          "expr": "kafka_brokers",
+          "legendFormat": "Активные брокеры"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 6},
+      "id": 5,
+      "type": "stat",
+      "title": "Under-replicated Partitions",
+      "targets": [
+        {
+          "expr": "sum(kafka_topic_partition_under_replicated_partition)",
+          "legendFormat": "Проблемные партиции"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": [],
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 12},
+      "id": 6,
+      "type": "stat",
+      "title": "Total Partitions by Topic",
+      "targets": [
+        {
+          "expr": "sum by (topic) (kafka_topic_partitions)",
+          "legendFormat": "{{topic}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["gophprofile", "kafka", "infrastructure"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  }
+}

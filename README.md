@@ -82,6 +82,7 @@ make build start
 #### Основные сервисы
 * GophProfile API & Web: http://localhost:8080
 * MinIO Web UI: http://localhost:9001 (логин/пароль: minioadmin / minioadmin)
+* **pgAdmin (PostgreSQL UI)**: http://localhost:8082 (логин/пароль: `admin@gophprofile.com` / `admin`)
 * AKHQ (Kafka UI): http://localhost:8081 (без авторизации)
 * PostgreSQL: localhost:6432 (пользователь/пароль/БД: gophprofile / secret / gophprofile)
 
