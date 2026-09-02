@@ -362,6 +362,24 @@ services:
     networks:
       - gophprofile
 
+  akhq:
+    image: tchiotludo/akhq:0.28.0
+    container_name: gophprofile-akhq
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8080" # UI available at http://localhost:8081
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            gophprofile-kafka:
+              properties:
+                bootstrap.servers: "kafka:9092"
+    networks:
+      - gophprofile
+
 volumes:
   postgres_data:
   kafka_data:
