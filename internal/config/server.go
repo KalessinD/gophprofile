@@ -19,9 +19,24 @@ const (
 	DefaultIdleTimeout       time.Duration = 30 * time.Second
 	DefaultWebStaticDir                    = "./web/static/"
 	DefaultApplyMigrations   bool          = false
+
+	DefaultRateLimitMaxTokens  = 20
+	DefaultRateLimitRefillRate = 10
+	DefaultCBFailureThreshold  = 5
+	DefaultCBResetTimeout      = 30 * time.Second
 )
 
 type (
+	CircuitBreaker struct {
+		FailureThreshold int
+		ResetTimeout     time.Duration
+	}
+
+	RateLimiter struct {
+		MaxTokens  int
+		RefillRate int
+	}
+
 	// serverConfigJSON is used only for JSON file unmarshaling
 	serverConfigJSON struct {
 		Address                  string `json:"address,omitempty"`
@@ -42,6 +57,12 @@ type (
 			CertFile string `json:"cert_file,omitempty"`
 			KeyFile  string `json:"key_file,omitempty"`
 		} `json:"tls,omitempty"`
+
+		RateLimitMaxTokens  int `json:"rate_limit_max_tokens,omitempty"`
+		RateLimitRefillRate int `json:"rate_limit_refill_rate,omitempty"`
+
+		CBFailureThreshold int    `json:"cb_failure_threshold,omitempty"`
+		CBResetTimeout     string `json:"cb_reset_timeout,omitempty"`
 	}
 
 	// Server configuration struct
@@ -62,6 +83,8 @@ type (
 		S3                       *S3
 		Kafka                    *Kafka
 		Otel                     *Otel
+		RateLimiter              *RateLimiter
+		CircuitBreaker           *CircuitBreaker
 	}
 
 	// TLSConfig contains paths to TLS certificates.
@@ -88,6 +111,14 @@ func GetDefaultServerConfig() *ServerConfig {
 		S3:                       getDefaultS3(),
 		Kafka:                    getDefaultKafka(),
 		Otel:                     getDefaultOtel(),
+		RateLimiter: &RateLimiter{
+			MaxTokens:  DefaultRateLimitMaxTokens,
+			RefillRate: DefaultRateLimitRefillRate,
+		},
+		CircuitBreaker: &CircuitBreaker{
+			FailureThreshold: DefaultCBFailureThreshold,
+			ResetTimeout:     DefaultCBResetTimeout,
+		},
 	}
 }
 
@@ -142,6 +173,18 @@ func (c *ServerConfig) UpdateFromEnvironment() error {
 		}
 	}
 
+	c.RateLimiter.MaxTokens = GetEnvOrFallback("RATE_LIMIT_MAX_TOKENS", c.RateLimiter.MaxTokens)
+	c.RateLimiter.RefillRate = GetEnvOrFallback("RATE_LIMIT_REFILL_RATE", c.RateLimiter.RefillRate)
+	c.CircuitBreaker.FailureThreshold = GetEnvOrFallback("CB_FAILURE_THRESHOLD", c.CircuitBreaker.FailureThreshold)
+
+	cbTimeoutStr := GetEnvOrFallback("CB_RESET_TIMEOUT", "")
+	if cbTimeoutStr != "" {
+		d, err := time.ParseDuration(cbTimeoutStr)
+		if err == nil {
+			c.CircuitBreaker.ResetTimeout = d
+		}
+	}
+
 	return nil
 }
 
@@ -161,6 +204,18 @@ func (c *ServerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) e
 	flagSet.StringVar(&c.Kafka.GroupID, "kafka-group-id", c.Kafka.GroupID, "Kafka consumer group ID")
 	flagSet.StringVar(&c.LoggerType, "logger-type", c.LoggerType, "logger type: zap, slog (default)")
 	flagSet.StringVar(&c.Otel.ExporterOTLPEndpoint, "otel-endpoint", c.Otel.ExporterOTLPEndpoint, "OTLP exporter endpoint (e.g., jaeger:4317)")
+	flagSet.IntVar(&c.RateLimiter.MaxTokens, "rate-limit-max-tokens", c.RateLimiter.MaxTokens, "max tokens for rate limiter")
+	flagSet.IntVar(&c.RateLimiter.RefillRate, "rate-limit-refill-rate", c.RateLimiter.RefillRate, "token refill rate per second")
+	flagSet.IntVar(&c.CircuitBreaker.FailureThreshold, "cb-failure-threshold", c.CircuitBreaker.FailureThreshold, "circuit breaker failure threshold")
+
+	var cbTimeoutStr string
+	flagSet.StringVar(&cbTimeoutStr, "cb-reset-timeout", "", "circuit breaker reset timeout (e.g. 30s)")
+	if cbTimeoutStr != "" {
+		d, err := time.ParseDuration(cbTimeoutStr)
+		if err == nil {
+			c.CircuitBreaker.ResetTimeout = d
+		}
+	}
 
 	// Using temporary variables to prevent nil pointer dereference if TLSConfig is nil
 	var tlsCertFile string
@@ -265,6 +320,22 @@ func (c *ServerConfig) UpdateFromFile(configFile string) error {
 
 	if jsonCfg.OTELExporterOTLPEndpoint != "" {
 		c.Otel.ExporterOTLPEndpoint = jsonCfg.OTELExporterOTLPEndpoint
+	}
+
+	if jsonCfg.RateLimitMaxTokens != 0 {
+		c.RateLimiter.MaxTokens = jsonCfg.RateLimitMaxTokens
+	}
+	if jsonCfg.RateLimitRefillRate != 0 {
+		c.RateLimiter.RefillRate = jsonCfg.RateLimitRefillRate
+	}
+	if jsonCfg.CBFailureThreshold != 0 {
+		c.CircuitBreaker.FailureThreshold = jsonCfg.CBFailureThreshold
+	}
+	if jsonCfg.CBResetTimeout != "" {
+		d, err := time.ParseDuration(jsonCfg.CBResetTimeout)
+		if err == nil {
+			c.CircuitBreaker.ResetTimeout = d
+		}
 	}
 
 	return nil
