@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gophprofile.name" . }}-minio
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    component: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "gophprofile.name" . }}-minio
+  template:
+    metadata:
+      labels:
+        app: {{ include "gophprofile.name" . }}-minio
+        component: minio
+    spec:
+      containers:
+        - name: minio
+          image: "gophprofile-minio:local"
+          imagePullPolicy: IfNotPresent
+          args: ["server", "/data", "--address", ":9000", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              value: "gk_server_access_key"
+            - name: MINIO_ROOT_PASSWORD
+              value: "G0phK33p3rS3rv3r!"
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gophprofile.name" . }}-minio
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+  selector:
+    app: {{ include "gophprofile.name" . }}-minio

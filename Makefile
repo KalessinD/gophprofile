@@ -75,7 +75,8 @@ print_title = $(ECHO) "\033[1;33m$1\033[0m"
     check-binaries \
     log-server log-worker \
     start-docker stop-docker \
-    start stop restart status
+    start stop restart status \
+	k8s-bootstrap k8s-install k8s-up k8s-uninstall build-k8s
 
 .DEFAULT_GOAL := all
 
@@ -176,3 +177,41 @@ log-worker: # Shows log from worker
 
 status: # Returns the status of containers
 	$(NOECHO) $(DOCKER_COMPOSE) ps -a
+
+build-k8s: ## Builds Docker images for Kubernetes deployment
+	$(NOECHO) $(call print_title,Building K8s Docker images...)
+	$(NOECHO) docker build -t gophprofile-server:local -f docker/gophprofile-server/Dockerfile .
+	$(NOECHO) docker build -t gophprofile-worker:local -f docker/gophprofile-worker/Dockerfile .
+	$(NOECHO) docker build -t gophprofile-minio:local -f docker/minio/Dockerfile .
+	$(NOECHO) docker build -t gophprofile-minio-setup:local -f docker/mc/Dockerfile .
+
+k8s-bootstrap: ## Bootstraps K8s cluster with all infra (Postgres, Kafka, Prometheus)
+	$(NOECHO) $(call print_title,Bootstrapping Kubernetes cluster...)
+	$(NOECHO) kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+	$(NOECHO) helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+	$(NOECHO) helm repo update
+	$(NOECHO) $(call print_title,Installing PostgreSQL...)
+	$(NOECHO) helm upgrade --install gophprofile-postgresql oci://registry-1.docker.io/bitnamicharts/postgresql \
+		--set auth.username=gophprofile --set auth.password=secret --set auth.database=gophprofile \
+		--set primary.resources.requests.cpu=100m --set primary.resources.requests.memory=256Mi \
+		--set primary.resources.limits.cpu=500m --set primary.resources.limits.memory=512Mi --wait
+	$(NOECHO) $(call print_title,Installing Kafka...)
+	$(NOECHO) helm upgrade --install gophprofile-kafka oci://registry-1.docker.io/bitnamicharts/kafka \
+		--set controller.replicaCount=1 --set extraConfig=auto.create.topics.enable=true \
+		--set resources.requests.cpu=250m --set resources.requests.memory=512Mi \
+		--set resources.limits.cpu=1000m --set resources.limits.memory=1Gi --wait
+	$(NOECHO) $(call print_title,Installing Prometheus Stack...)
+	$(NOECHO) helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n monitoring --wait
+
+k8s-install: ## Installs/Upgrades GophProfile via Helm
+	$(NOECHO) $(call print_title,"Deploying GophProfile to Kubernetes...")
+	$(NOECHO) helm upgrade --install gophprofile deploy/helm/gophprofile
+
+k8s-up: build k8s-bootstrap k8s-install ## Full local setup: build images, install infra, deploy app
+	$(NOECHO) $(call print_title,"Deployment complete!")
+	$(NOECHO) $(ECHO) "Add '127.0.0.1 gophprofile.local' to your /etc/hosts if not done yet."
+	$(NOECHO) $(ECHO) "Access app at: http://gophprofile.local"
+
+k8s-uninstall: ## Removes GophProfile from K8s
+	$(NOECHO) $(call print_title,"Uninstalling GophProfile from Kubernetes...")
+	$(NOECHO) helm uninstall gophprofile

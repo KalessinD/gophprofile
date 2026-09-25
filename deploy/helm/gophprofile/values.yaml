@@ -1,0 +1,48 @@
+server:
+  replicaCount: 1
+  image:
+    repository: gophprofile-server
+    tag: local
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+worker:
+  replicaCount: 1
+  image:
+    repository: gophprofile-worker
+    tag: local
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+ingress:
+  enabled: true
+  className: "traefik" # being used in Rancher Desktop by default
+  host: "gophprofile.local"
+
+# settings for HorizontalPodAutoscaler (HPA)
+hpa:
+  server:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+  worker:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+networkPolicy:
+  enabled: true

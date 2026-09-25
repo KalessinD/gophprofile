@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "gophprofile.name" . }}-minio-setup
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: "gophprofile-minio-setup:local"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              mc alias set myminio http://{{ include "gophprofile.name" . }}-minio:9000 gk_server_access_key G0phK33p3rS3rv3r!
+              mc mb myminio/gophprofile --ignore-existing
+              echo "Bucket created successfully"

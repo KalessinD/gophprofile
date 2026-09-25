@@ -1,0 +1,42 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "gophprofile.name" . }}-alerts
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    release: prometheus
+spec:
+  groups:
+    - name: avatar-service-alerts
+      rules:
+        - alert: HighErrorRate
+          expr: |
+            (
+              sum(rate(avatars_uploads_total{status="error"}[5m]))
+              /
+              sum(rate(avatars_uploads_total[5m]))
+            ) > 0.1
+            and
+            sum(rate(avatars_uploads_total[5m])) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High error rate on avatar uploads"
+            description: "More than 10% of uploads are failing."
+        - alert: HighResponseTime
+          expr: histogram_quantile(0.95, rate(avatars_upload_duration_seconds_bucket[5m])) > 5
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High upload response time"
+            description: "95th percentile of upload duration is over 5 seconds."
+        - alert: UploadErrorsDetected
+          expr: increase(avatars_uploads_total{status="error"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Avatar upload errors detected"
+            description: "At least one upload error occurred in the last 5 minutes."

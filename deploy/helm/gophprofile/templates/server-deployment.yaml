@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gophprofile.name" . }}-server
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    component: server
+spec:
+  replicas:
+    {{- if not .Values.hpa.server.enabled }}
+      replicas: {{ .Values.server.replicaCount }}
+    {{- end }}  
+  selector:
+    matchLabels:
+      app: {{ include "gophprofile.name" . }}-server
+  template:
+    metadata:
+      labels:
+        app: {{ include "gophprofile.name" . }}-server
+        component: server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: server
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          env:
+            - name: ADDRESS
+              value: "0.0.0.0:8080"
+          envFrom:
+            - configMapRef:
+                name: {{ include "gophprofile.name" . }}-config
+            - secretRef:
+                name: {{ include "gophprofile.name" . }}-secret
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

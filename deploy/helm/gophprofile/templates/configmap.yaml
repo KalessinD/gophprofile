@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gophprofile.name" . }}-config
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+data:
+  S3_ENDPOINT: "gophprofile-minio:9000"
+  S3_BUCKET: "gophprofile"
+  S3_USE_SSL: "false"
+  KAFKA_BROKERS: "gophprofile-kafka:9092"
+  KAFKA_TOPIC: "avatar-processing"
+  KAFKA_GROUP_ID: "gophprofile-worker-group"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
