@@ -210,6 +210,7 @@ k8s-bootstrap: # Bootstraps K8s cluster with all infra (Postgres, Kafka, Prometh
 #		--timeout 7m --wait
 	$(NOECHO) $(call print_title,Installing Prometheus Stack...)
 	$(NOECHO) helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n monitoring --wait
+		--set grafana.service.type=NodePort --set grafana.service.nodePort=30081 --wait
 
 k8s-install: # Installs/Upgrades GophProfile via Helm
 	$(NOECHO) $(call print_title,"Deploying GophProfile to Kubernetes...")

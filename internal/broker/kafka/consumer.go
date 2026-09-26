@@ -24,18 +24,15 @@ type (
 		client  sarama.ConsumerGroup
 		topic   string
 		handler func(ctx context.Context, event *broker.AvatarEvent) error
-		ready   chan bool
 		wg      sync.WaitGroup
 		logger  logger.Logger
 	}
 
 	// consumerGroupHandler implements sarama.ConsumerGroupHandler interface.
 	consumerGroupHandler struct {
-		handler   Handler
-		ready     chan bool
-		readyOnce sync.Once
-		logger    logger.Logger
-		topic     string
+		handler Handler
+		logger  logger.Logger
+		topic   string
 	}
 )
 
@@ -53,7 +50,6 @@ func NewConsumer(brokers string, topic string, groupID string, logger logger.Log
 	return &Consumer{
 		client: client,
 		topic:  topic,
-		ready:  make(chan bool),
 		logger: logger,
 	}, nil
 }
@@ -70,7 +66,6 @@ func (c *Consumer) ConsumeAvatarEvents(ctx context.Context, handler Handler) {
 			default:
 				group := &consumerGroupHandler{
 					handler: c.handler,
-					ready:   c.ready,
 					logger:  c.logger,
 					topic:   c.topic,
 				}
@@ -96,9 +91,6 @@ func (c *Consumer) Close() error {
 
 // Setup is called when a new session starts and is ready to consume messages.
 func (h *consumerGroupHandler) Setup(sarama.ConsumerGroupSession) error {
-	h.readyOnce.Do(func() {
-		close(h.ready)
-	})
 	return nil
 }
 

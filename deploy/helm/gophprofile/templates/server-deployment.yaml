@@ -55,6 +55,8 @@ spec:
           env:
             - name: ADDRESS
               value: "0.0.0.0:8080"
+            - name: APPLY_DB_MIGRATIONS
+              value: "true"
           envFrom:
             - configMapRef:
                 name: {{ include "gophprofile.name" . }}-config
