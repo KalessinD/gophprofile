@@ -6,10 +6,9 @@ metadata:
     {{- include "gophprofile.labels" . | nindent 4 }}
     component: worker
 spec:
-  replicas:
-    {{- if not .Values.hpa.worker.enabled }}
+  {{- if not .Values.hpa.worker.enabled }}
     replicas: {{ .Values.worker.replicaCount }}
-    {{- end }}
+  {{- end }}
   selector:
     matchLabels:
       app: {{ include "gophprofile.name" . }}-worker

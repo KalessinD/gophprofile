@@ -6,10 +6,9 @@ metadata:
     {{- include "gophprofile.labels" . | nindent 4 }}
     component: server
 spec:
-  replicas:
-    {{- if not .Values.hpa.server.enabled }}
-      replicas: {{ .Values.server.replicaCount }}
-    {{- end }}  
+  {{- if not .Values.hpa.server.enabled }}
+  replicas: {{ .Values.server.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app: {{ include "gophprofile.name" . }}-server

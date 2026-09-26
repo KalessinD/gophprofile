@@ -4,6 +4,10 @@ server:
     repository: gophprofile-server
     tag: local
     pullPolicy: IfNotPresent
+  service:
+    type: NodePort
+    port: 8080
+    nodePort: 30080
   resources:
     requests:
       cpu: 100m
@@ -27,7 +31,7 @@ worker:
       memory: 256Mi
 
 ingress:
-  enabled: true
+  enabled: false
   className: "traefik" # being used in Rancher Desktop by default
   host: "gophprofile.local"
 
