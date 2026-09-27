@@ -76,7 +76,7 @@ print_title = $(ECHO) "\033[1;33m$1\033[0m"
     log-server log-worker \
     start-docker stop-docker \
     start stop restart status \
-	k8s-bootstrap k8s-install k8s-up k8s-uninstall build-k8s \
+	k8s-bootstrap k8s-install k8s-up k8s-uninstall build-k8s k8s-vault k8s-vault-setup \
 	setup-hosts
 
 .DEFAULT_GOAL := all
@@ -209,7 +209,7 @@ k8s-bootstrap: # Bootstraps K8s cluster with all infra (Postgres, Kafka, Prometh
 #		--set resources.limits.cpu=1000m --set resources.limits.memory=1Gi \
 #		--timeout 7m --wait
 	$(NOECHO) $(call print_title,Installing Prometheus Stack...)
-	$(NOECHO) helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n monitoring --wait
+	$(NOECHO) helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n monitoring \
 		--set grafana.service.type=NodePort --set grafana.service.nodePort=30081 --wait
 
 k8s-install: # Installs/Upgrades GophProfile via Helm
@@ -227,6 +227,49 @@ k8s-up: build-k8s k8s-bootstrap k8s-install # Full local setup: build images, in
 k8s-uninstall: # Removes GophProfile from K8s
 	$(NOECHO) $(call print_title,"Uninstalling GophProfile from Kubernetes...")
 	$(NOECHO) helm uninstall gophprofile
+
+# Всегда 403
+# как вариант, при необходимости, можно взять образ с Docker Hub и написать Deployment к нему
+k8s-vault: # Installs HashiCorp Vault and External Secrets Operator
+	$(NOECHO) $(call print_title,Installing HashiCorp Vault...)
+	$(NOECHO) helm repo add external-secrets https://charts.external-secrets.io
+# тоже отдаёт 403
+#	$(NOECHO) helm repo add hashicorp https://helm.releases.hashicorp.com
+	$(NOECHO) helm repo update
+	$(NOECHO) helm upgrade --install vault oci://helm.releases.hashicorp.com/vault \
+		--version 0.28.1 \
+		--set "server.dev.enabled=true" \
+		--set "server.image.tag=1.15.2" \
+		--wait
+#	$(NOECHO) helm upgrade --install vault hashicorp/vault \
+#		--set "server.dev.enabled=true" \
+#		--set "server.image.tag=1.15.2" \
+#		--wait
+	$(NOECHO) $(call print_title,Installing External Secrets Operator...)
+	# ESO will look at ExternalSecret's recources and create K8s Secret.
+	$(NOECHO) helm upgrade --install external-secrets external-secrets/external-secrets \
+		-n external-secrets --create-namespace --wait
+
+k8s-vault-setup: # Configures Vault K8s auth and puts secrets inside
+	$(NOECHO) $(call print_title,Configuring Vault Kubernetes Auth...)
+	$(NOECHO) kubectl exec vault-0 -- vault auth enable kubernetes
+	$(NOECHO) kubectl exec vault-0 -- sh -c 'vault write auth/kubernetes/config \
+		kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"'
+	$(NOECHO) kubectl exec vault-0 -- sh -c 'cat <<EOF | vault policy write gophprofile-policy -
+	path "secret/data/gophprofile" {
+		capabilities = ["read"]
+	}
+	EOF'
+	$(NOECHO) kubectl exec vault-0 -- vault write auth/kubernetes/role/gophprofile-role \
+		bound_service_account_names=external-secrets \
+		bound_service_account_namespaces=external-secrets \
+		policies=gophprofile-policy ttl=1h
+	$(NOECHO) $(call print_title,Putting secrets into Vault...)
+	$(NOECHO) kubectl exec vault-0 -- vault kv put secret/gophprofile \
+		database-dsn="postgres://gophprofile:secret@gophprofile-postgresql:5432/gophprofile?sslmode=disable" \
+		s3-access-key="gk_server_access_key" \
+		s3-secret-key="G0phK33p3rS3rv3r!"
+	$(NOECHO) $(call print_title,Vault setup complete!)
 
 setup-hosts: # Adds gophprofile.local to /etc/hosts (requires sudo)
 	@if grep -q "gophprofile.local" /etc/hosts; then \

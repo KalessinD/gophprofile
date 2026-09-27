@@ -76,6 +76,7 @@ metadata:
   name: otel-collector
   labels:
     {{- include "gophprofile.labels" . | nindent 4 }}
+    app: {{ include "gophprofile.name" . }}-otel-collector
 spec:
   ports:
     - name: otlp-grpc

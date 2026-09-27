@@ -97,6 +97,44 @@ make build start
 * OTel Collector Metrics: http://localhost:8889/metrics
 * Kafka Exporter Metrics: http://localhost:9308/metrics
 
+### 4. Запуск в Kubernetes (Rancher Desktop / minikube)
+
+Для локальной разработки и тестирования в Kubernetes используется Helm-чарт, находящийся в директории `deploy/helm/gophprofile`. 
+
+#### Предварительные требования
+1. Установленный и запущенный [Rancher Desktop](https://rancherdesktop.io/) (или minikube) с включенным Kubernetes.
+2. Установленный `helm` и `kubectl`.
+3. Свободный порт `30080` (для API) и `30081` (для Grafana) на localhost.
+
+#### 1. Настройка локального домена (Опционально)
+Для удобства доступа по домену `gophprofile.local` добавьте запись в `/etc/hosts`:
+```bash
+make setup-hosts
+```
+*(Если вы не хотите использовать домен, приложение будет доступно по адресу `http://localhost:30080`)*
+
+#### 2. Полный деплой одной командой
+Эта команда соберет Docker-образы, установит инфраструктуру (PostgreSQL, Kafka, MinIO, Prometheus) и задеплоит само приложение:
+```bash
+make k8s-up
+```
+
+#### 3. Доступные сервисы в Kubernetes
+После успешного деплоя доступны следующие веб-интерфейсы:
+* **GophProfile API & Web:** http://localhost:30080 (или http://gophprofile.local:30080)
+* **Grafana (Мониторинг):** http://localhost:30081
+  * Логин: `admin`
+  * Пароль можно получить командой: 
+    ```bash
+    kubectl get secret prometheus-grafana -n monitoring -o jsonpath="{.data.admin-password}" | base64 -d ; echo
+    ```
+* **MinIO Web UI:** http://localhost:30082 (потребуется проброс порта: `kubectl port-forward svc/gophprofile-minio 30082:9001`)
+  * Логин/пароль: `gk_server_access_key` / `G0phK33p3rS3rv3r!`
+
+#### 4. Управление деплоем
+* Обновить только приложение (после изменения кода): `make k8s-install`
+* Удалить приложение из кластера: `make k8s-uninstall`
+
 ## Тестирование
 
 ### Unit-тесты
@@ -155,3 +193,11 @@ make test-e2e
 * `make status` - Отображение статуса сборки контейнеров и сервера.
 * `make test-go` - Запуск юнит-тестов.
 * `make test-e2e` - Запуск e2e тестов.
+* `make build-k8s` - Сборка Docker-образов (server, worker, minio, mc) с тегом `:local` для Kubernetes.
+* `make k8s-bootstrap` - Установка инфраструктуры в кластер K8s (PostgreSQL, Kafka, MinIO, Prometheus Stack).
+* `make k8s-install` - Установка или обновление GophProfile в кластере K8s с помощью Helm.
+* `make k8s-up` - Полный цикл локального деплоя: сборка образов, запуск инфраструктуры и установка приложения.
+* `make k8s-uninstall` - Удаление GophProfile из кластера Kubernetes.
+* `make setup-hosts` - Добавление локального домена `gophprofile.local` в файл `/etc/hosts` (требует sudo).
+* `make k8s-vault` - Установка External Secrets Operator (и Vault, если не используется встроенный манифест).
+* `make k8s-vault-setup` - Настройка Vault (включение KV, создание политик и запись секретов) для интеграции с K8s.

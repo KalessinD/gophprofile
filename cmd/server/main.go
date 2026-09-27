@@ -42,16 +42,16 @@ func runHTTPServer(cfg *config.ServerConfig, appLogger logger.Logger) error {
 	defer cancel()
 	defer notifyCancel()
 
-	err := metrics.Init(notifyCtx)
-	if err != nil {
-		return err
-	}
-
 	otelShutdown, err := telemetry.InitAll(ctx, cfg.Otel, common.OtelServiceName)
 	if err != nil {
 		return err
 	}
 	defer otelShutdown()
+
+	err = metrics.Init(notifyCtx)
+	if err != nil {
+		return err
+	}
 
 	pgdb, err := databaseWorks(ctx, cfg)
 	if err != nil {

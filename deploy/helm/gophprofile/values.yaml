@@ -31,7 +31,7 @@ worker:
       memory: 256Mi
 
 ingress:
-  enabled: false
+  enabled: true
   className: "traefik" # being used in Rancher Desktop by default
   host: "gophprofile.local"
 

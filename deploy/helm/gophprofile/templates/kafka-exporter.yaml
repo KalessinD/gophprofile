@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gophprofile.name" . }}-kafka-exporter
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    component: kafka-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "gophprofile.name" . }}-kafka-exporter
+  template:
+    metadata:
+      labels:
+        app: {{ include "gophprofile.name" . }}-kafka-exporter
+        component: kafka-exporter
+    spec:
+      containers:
+        - name: kafka-exporter
+          image: "danielqsj/kafka-exporter:v1.9.0"
+          args: ["--kafka.server={{ include "gophprofile.name" . }}-kafka:9092"]
+          ports:
+            - name: metrics
+              containerPort: 9308
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gophprofile.name" . }}-kafka-exporter
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app: {{ include "gophprofile.name" . }}-kafka-exporter
+spec:
+  ports:
+    - name: metrics
+      port: 9308
+      targetPort: metrics
+  selector:
+    app: {{ include "gophprofile.name" . }}-kafka-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "gophprofile.name" . }}-kafka-exporter
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "gophprofile.name" . }}-kafka-exporter
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

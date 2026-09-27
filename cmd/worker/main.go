@@ -40,11 +40,6 @@ func run() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	err = metrics.Init(notifyCtx)
-	if err != nil {
-		return err
-	}
-
 	appLogger, err := logger.NewLogger(cfg.LoggerType, config.IsProduction())
 	if err != nil {
 		return fmt.Errorf("failed to init logger: %w", err)
@@ -56,6 +51,11 @@ func run() error {
 		return err
 	}
 	defer otelShutdown()
+
+	err = metrics.Init(notifyCtx)
+	if err != nil {
+		return err
+	}
 
 	pgdb, err := postgres.Connect(notifyCtx, cfg.PsqlDSN)
 	if err != nil {
