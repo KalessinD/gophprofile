@@ -89,6 +89,11 @@ func (c *Consumer) Close() error {
 	return nil
 }
 
+// IsHealthy checks if the underlying Sarama consumer group is initialized.
+func (c *Consumer) IsHealthy() bool {
+	return c != nil && c.client != nil
+}
+
 // Setup is called when a new session starts and is ready to consume messages.
 func (h *consumerGroupHandler) Setup(sarama.ConsumerGroupSession) error {
 	return nil

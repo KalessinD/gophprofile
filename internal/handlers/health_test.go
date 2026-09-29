@@ -15,19 +15,28 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// mockKafkaHealthChecker is a mock implementation of handlers.KafkaHealthChecker for testing.
+type mockKafkaHealthChecker struct {
+	healthy bool
+}
+
+func (m *mockKafkaHealthChecker) IsHealthy() bool {
+	return m.healthy
+}
+
 // nolint: unparam
 // setupHealthTest initializes mocks and the HealthHandler.
-func setupHealthTest(t *testing.T) (*gomock.Controller, sqlmock.Sqlmock, *mocks.MockObjectStorage, *mocks.MockAvatarProducer, *handlers.HealthHandler) {
+func setupHealthTest(t *testing.T, kafkaHealthy bool) (*gomock.Controller, sqlmock.Sqlmock, *mocks.MockObjectStorage, *mockKafkaHealthChecker, *handlers.HealthHandler) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	require.NoError(t, err)
 
 	ctrl := gomock.NewController(t)
 	s3Mock := mocks.NewMockObjectStorage(ctrl)
-	prodMock := mocks.NewMockAvatarProducer(ctrl)
+	kafkaMock := &mockKafkaHealthChecker{healthy: kafkaHealthy}
 
-	healthHandler := handlers.NewHealthHandler(db, s3Mock, prodMock)
-	return ctrl, mock, s3Mock, prodMock, healthHandler
+	healthHandler := handlers.NewHealthHandler(db, s3Mock, kafkaMock)
+	return ctrl, mock, s3Mock, kafkaMock, healthHandler
 }
 
 // assertHealthResponse is a helper to decode the JSON and verify status codes and component states.
@@ -51,7 +60,7 @@ func assertHealthResponse(t *testing.T, rec *httptest.ResponseRecorder, expected
 }
 
 func TestCheckHealth_AllHealthy(t *testing.T) {
-	ctrl, dbMock, _, _, h := setupHealthTest(t)
+	ctrl, dbMock, _, _, h := setupHealthTest(t, true)
 	defer ctrl.Finish()
 
 	// DB ping succeeds
@@ -70,7 +79,7 @@ func TestCheckHealth_AllHealthy(t *testing.T) {
 }
 
 func TestCheckHealth_DatabaseError(t *testing.T) {
-	ctrl, dbMock, _, _, h := setupHealthTest(t)
+	ctrl, dbMock, _, _, h := setupHealthTest(t, true)
 	defer ctrl.Finish()
 
 	// DB ping fails
@@ -88,8 +97,26 @@ func TestCheckHealth_DatabaseError(t *testing.T) {
 	assert.NoError(t, dbMock.ExpectationsWereMet())
 }
 
+func TestCheckHealth_KafkaUnhealthy(t *testing.T) {
+	ctrl, dbMock, _, _, h := setupHealthTest(t, false)
+	defer ctrl.Finish()
+
+	dbMock.ExpectPing()
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	h.CheckHealth(rec, req)
+
+	assertHealthResponse(t, rec, http.StatusServiceUnavailable, "error", map[string]string{
+		"database": "ok",
+		"s3":       "ok",
+		"kafka":    "not initialized",
+	})
+	assert.NoError(t, dbMock.ExpectationsWereMet())
+}
+
 func TestCheckHealth_MissingS3AndKafka(t *testing.T) {
-	// Pass nil for S3 and Producer
+	// Pass nil for S3 and Kafka
 	db, dbMock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	require.NoError(t, err)
 	defer db.Close()

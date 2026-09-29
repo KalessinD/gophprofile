@@ -34,16 +34,24 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          ports:
+            - name: health
+              containerPort: {{ .Values.worker.healthPort }}
           livenessProbe:
-            exec:
-              command: ["sh", "-c", "kill -0 1"]
+            httpGet:
+              path: /health
+              port: health
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
-            exec:
-              command: ["sh", "-c", "kill -0 1"]
+            httpGet:
+              path: /health
+              port: health
             initialDelaySeconds: 5
             periodSeconds: 5
+          env:
+            - name: HEALTH_ADDRESS
+              value: "0.0.0.0:{{ .Values.worker.healthPort }}"
           envFrom:
             - configMapRef:
                 name: {{ include "gophprofile.name" . }}-config

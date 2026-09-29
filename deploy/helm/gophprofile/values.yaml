@@ -32,6 +32,7 @@ server:
     type: NodePort
     port: 8080
     nodePort: 30080
+  healthPort: 8080
   resources:
     requests:
       cpu: 100m
@@ -46,6 +47,7 @@ worker:
     repository: gophprofile-worker
     tag: local
     pullPolicy: IfNotPresent
+  healthPort: 8081
   resources:
     requests:
       cpu: 100m
