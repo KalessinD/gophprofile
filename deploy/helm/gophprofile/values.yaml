@@ -1,3 +1,27 @@
+# Infrastructure dependencies
+postgresql:
+  host: "gophprofile-postgresql"
+  port: 5432
+  username: "gophprofile"
+  password: "" # should be filled in values.secret.yaml
+  database: "gophprofile"
+
+s3:
+  endpoint: "gophprofile-minio:9000"
+  bucket: "gophprofile"
+  accessKey: "" # should be filled in values.secret.yaml
+  secretKey: "" # should be filled in values.secret.yaml
+  useSSL: "false"
+
+kafka:
+  brokers: "gophprofile-kafka:9092"
+  topic: "avatar-processing"
+  groupId: "gophprofile-worker-group"
+
+otel:
+  endpoint: "otel-collector:4317"
+
+# Application settings
 server:
   replicaCount: 1
   image:
@@ -42,11 +66,13 @@ hpa:
     minReplicas: 2
     maxReplicas: 5
     targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
   worker:
     enabled: true
     minReplicas: 2
     maxReplicas: 5
     targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
 
 networkPolicy:
   enabled: true

@@ -20,6 +20,12 @@ spec:
       target:
         type: Utilization
         averageUtilization: {{ .Values.hpa.server.targetCPUUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.hpa.server.targetMemoryUtilizationPercentage }}
 ---
 {{- end }}
 {{- if .Values.hpa.worker.enabled }}
@@ -44,4 +50,10 @@ spec:
       target:
         type: Utilization
         averageUtilization: {{ .Values.hpa.worker.targetCPUUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.hpa.worker.targetMemoryUtilizationPercentage }}
 {{- end }}

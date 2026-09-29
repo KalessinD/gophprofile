@@ -33,6 +33,9 @@ scripts
 # sqlite3
 *.db
 
+# helm
+deploy/helm/gophprofile/values.secret.yaml
+
 thoughts/
 tools/
 

@@ -213,8 +213,13 @@ k8s-bootstrap: # Bootstraps K8s cluster with all infra (Postgres, Kafka, Prometh
 		--set grafana.service.type=NodePort --set grafana.service.nodePort=30081 --wait
 
 k8s-install: # Installs/Upgrades GophProfile via Helm
-	$(NOECHO) $(call print_title,"Deploying GophProfile to Kubernetes...")
-	$(NOECHO) helm upgrade --install gophprofile deploy/helm/gophprofile
+	$(NOECHO) $(call print_title,Deploying GophProfile to Kubernetes...)
+	$(NOECHO) if [ ! -f deploy/helm/gophprofile/values.secret.yaml ]; then \
+		$(ECHO) "ERROR: deploy/helm/gophprofile/values.secret.yaml not found."; \
+		$(ECHO) "Please copy values.secret.yaml.example to values.secret.yaml and fill in the secrets."; \
+		exit 1; \
+	fi
+	$(NOECHO) helm upgrade --install gophprofile deploy/helm/gophprofile -f deploy/helm/gophprofile/values.secret.yaml
 
 k8s-up: build-k8s k8s-bootstrap k8s-install # Full local setup: build images, install infra, deploy app
 	$(NOECHO) $(call print_title,Deployment complete!)

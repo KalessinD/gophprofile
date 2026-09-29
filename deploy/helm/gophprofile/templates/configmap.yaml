@@ -5,10 +5,10 @@ metadata:
   labels:
     {{- include "gophprofile.labels" . | nindent 4 }}
 data:
-  S3_ENDPOINT: "gophprofile-minio:9000"
-  S3_BUCKET: "gophprofile"
-  S3_USE_SSL: "false"
-  KAFKA_BROKERS: "gophprofile-kafka:9092"
-  KAFKA_TOPIC: "avatar-processing"
-  KAFKA_GROUP_ID: "gophprofile-worker-group"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+  S3_ENDPOINT: {{ .Values.s3.endpoint | quote }}
+  S3_BUCKET: {{ .Values.s3.bucket | quote }}
+  S3_USE_SSL: {{ .Values.s3.useSSL | quote }}
+  KAFKA_BROKERS: {{ .Values.kafka.brokers | quote }}
+  KAFKA_TOPIC: {{ .Values.kafka.topic | quote }}
+  KAFKA_GROUP_ID: {{ .Values.kafka.groupId | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.endpoint | quote }}
