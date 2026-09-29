@@ -18,6 +18,7 @@ spec:
         app: {{ include "gophprofile.name" . }}-worker
         component: worker
     spec:
+      serviceAccountName: {{ include "gophprofile.name" . }}-sa
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -33,46 +34,21 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
           envFrom:
             - configMapRef:
                 name: {{ include "gophprofile.name" . }}-config
             - secretRef:
                 name: {{ include "gophprofile.name" . }}-secret
-          resources:
-            {{- toYaml .Values.worker.resources | nindent 12 }}
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-      volumes:
-        - name: tmp
-          emptyDir: {}
-        - name: worker
-          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
-          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          env:
-            - name: DATABASE_DSN
-              value: "postgres://gophprofile:secret@gophprofile-postgresql:5432/gophprofile?sslmode=disable"
-            - name: S3_ENDPOINT
-              value: "gophprofile-minio:9000"
-            - name: S3_ACCESS_KEY
-              value: "gk_server_access_key"
-            - name: S3_SECRET_KEY
-              value: "G0phK33p3rS3rv3r!"
-            - name: S3_BUCKET
-              value: "gophprofile"
-            - name: KAFKA_BROKERS
-              value: "gophprofile-kafka:9092"
-            - name: KAFKA_TOPIC
-              value: "avatar-processing"
-            - name: KAFKA_GROUP_ID
-              value: "gophprofile-worker-group"
-            - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "otel-collector:4317"
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           volumeMounts:

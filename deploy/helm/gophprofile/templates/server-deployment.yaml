@@ -24,6 +24,7 @@ spec:
         runAsGroup: 10001
         fsGroup: 10001
       terminationGracePeriodSeconds: 60
+      serviceAccountName: {{ include "gophprofile.name" . }}-sa
       containers:
         - name: server
           image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
