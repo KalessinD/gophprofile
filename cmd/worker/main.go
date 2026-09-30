@@ -98,8 +98,11 @@ func run() error {
 	healthMux.HandleFunc("/health", healthHandler.CheckHealth)
 
 	healthServer := &http.Server{
-		Addr:    cfg.HealthAddress,
-		Handler: healthMux,
+		Addr:              cfg.HealthAddress,
+		Handler:           healthMux,
+		ReadHeaderTimeout: config.DefaultReadHeaderTimeout,
+		ReadTimeout:       config.DefaultReadTimeout,
+		WriteTimeout:      config.DefaultWriteTimeout,
 	}
 
 	go func() {
