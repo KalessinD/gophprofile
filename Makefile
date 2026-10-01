@@ -75,7 +75,9 @@ print_title = $(ECHO) "\033[1;33m$1\033[0m"
     check-binaries \
     log-server log-worker \
     start-docker stop-docker \
-    start stop restart status
+    start stop restart status \
+	k8s-bootstrap k8s-install k8s-up k8s-uninstall build-k8s k8s-vault k8s-vault-setup \
+	setup-hosts
 
 .DEFAULT_GOAL := all
 
@@ -176,3 +178,108 @@ log-worker: # Shows log from worker
 
 status: # Returns the status of containers
 	$(NOECHO) $(DOCKER_COMPOSE) ps -a
+
+build-k8s: # Builds Docker images for Kubernetes deployment
+	$(NOECHO) $(call print_title,Building K8s Docker images...)
+	$(NOECHO) docker build -t gophprofile-server:local -f docker/gophprofile-server/Dockerfile --build-context current=. .
+	$(NOECHO) docker build -t gophprofile-worker:local -f docker/gophprofile-worker/Dockerfile --build-context current=. .
+	$(NOECHO) docker build -t gophprofile-minio:local -f docker/minio/Dockerfile .
+	$(NOECHO) docker build -t gophprofile-minio-setup:local -f docker/mc/Dockerfile .
+
+k8s-bootstrap: # Bootstraps K8s cluster with all infra (Postgres, Kafka, Prometheus)
+	$(NOECHO) $(call print_title,Bootstrapping Kubernetes cluster...)
+	$(NOECHO) kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+	$(NOECHO) helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+	$(NOECHO) helm repo update
+	$(NOECHO) $(call print_title,Installing PostgreSQL...)
+	$(NOECHO) helm upgrade --install gophprofile-postgresql oci://registry-1.docker.io/bitnamicharts/postgresql \
+		--set auth.username=gophprofile --set auth.password=secret --set auth.database=gophprofile \
+		--set primary.resources.requests.cpu=100m --set primary.resources.requests.memory=256Mi \
+		--set primary.resources.limits.cpu=1000m --set primary.resources.limits.memory=1Gi \
+		--set primary.livenessProbe.timeoutSeconds=15 --set primary.livenessProbe.failureThreshold=10 \
+		--set primary.readinessProbe.timeoutSeconds=15 --set primary.readinessProbe.failureThreshold=10 \
+		--wait
+#   почему-то виснет на скачивании любой версии чарта
+#	$(NOECHO) $(call print_title,Installing Kafka...)
+#	$(NOECHO) helm upgrade --install gophprofile-kafka oci://registry-1.docker.io/bitnamicharts/kafka \
+#		--version 29.3.14 \
+#		--set controller.replicaCount=1 --set extraConfig=auto.create.topics.enable=true \
+#		--set image.registry=docker.io --set image.repository=bitnami/kafka --set image.tag=3.7.0-debian-12-r0 \
+#		--set resources.requests.cpu=250m --set resources.requests.memory=512Mi \
+#		--set resources.limits.cpu=1000m --set resources.limits.memory=1Gi \
+#		--timeout 7m --wait
+	$(NOECHO) $(call print_title,Installing Prometheus Stack...)
+	$(NOECHO) helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n monitoring \
+		--set grafana.service.type=NodePort --set grafana.service.nodePort=30081 --wait
+
+k8s-install: # Installs/Upgrades GophProfile via Helm
+	$(NOECHO) $(call print_title,Deploying GophProfile to Kubernetes...)
+	$(NOECHO) if [ ! -f deploy/helm/gophprofile/values.secret.yaml ]; then \
+		$(ECHO) "ERROR: deploy/helm/gophprofile/values.secret.yaml not found."; \
+		$(ECHO) "Please copy values.secret.yaml.example to values.secret.yaml and fill in the secrets."; \
+		exit 1; \
+	fi
+	$(NOECHO) helm upgrade --install gophprofile deploy/helm/gophprofile -f deploy/helm/gophprofile/values.secret.yaml
+
+k8s-up: build-k8s k8s-bootstrap k8s-install # Full local setup: build images, install infra, deploy app
+	$(NOECHO) $(call print_title,Deployment complete!)
+	$(NOECHO) if ! grep -q "gophprofile.local" /etc/hosts; then \
+		$(ECHO) "WARNING: 'gophprofile.local' is missing in /etc/hosts. Run 'make setup-hosts' to fix it."; \
+	else \
+	$(ECHO) "Access app at: http://gophprofile.local"; \
+	fi
+
+k8s-uninstall: # Removes GophProfile from K8s
+	$(NOECHO) $(call print_title,"Uninstalling GophProfile from Kubernetes...")
+	$(NOECHO) helm uninstall gophprofile
+
+# Всегда 403
+# как вариант, при необходимости, можно взять образ с Docker Hub и написать Deployment к нему
+k8s-vault: # Installs HashiCorp Vault and External Secrets Operator
+	$(NOECHO) $(call print_title,Installing HashiCorp Vault...)
+	$(NOECHO) helm repo add external-secrets https://charts.external-secrets.io
+# тоже отдаёт 403
+#	$(NOECHO) helm repo add hashicorp https://helm.releases.hashicorp.com
+	$(NOECHO) helm repo update
+	$(NOECHO) helm upgrade --install vault oci://helm.releases.hashicorp.com/vault \
+		--version 0.28.1 \
+		--set "server.dev.enabled=true" \
+		--set "server.image.tag=1.15.2" \
+		--wait
+#	$(NOECHO) helm upgrade --install vault hashicorp/vault \
+#		--set "server.dev.enabled=true" \
+#		--set "server.image.tag=1.15.2" \
+#		--wait
+	$(NOECHO) $(call print_title,Installing External Secrets Operator...)
+	# ESO will look at ExternalSecret's recources and create K8s Secret.
+	$(NOECHO) helm upgrade --install external-secrets external-secrets/external-secrets \
+		-n external-secrets --create-namespace --wait
+
+k8s-vault-setup: # Configures Vault K8s auth and puts secrets inside
+	$(NOECHO) $(call print_title,Configuring Vault Kubernetes Auth...)
+	$(NOECHO) kubectl exec vault-0 -- vault auth enable kubernetes
+	$(NOECHO) kubectl exec vault-0 -- sh -c 'vault write auth/kubernetes/config \
+		kubernetes_host="https://$KUBERNETES_PORT_443_TCP_ADDR:443"'
+	$(NOECHO) kubectl exec vault-0 -- sh -c 'cat <<EOF | vault policy write gophprofile-policy -
+	path "secret/data/gophprofile" {
+		capabilities = ["read"]
+	}
+	EOF'
+	$(NOECHO) kubectl exec vault-0 -- vault write auth/kubernetes/role/gophprofile-role \
+		bound_service_account_names=external-secrets \
+		bound_service_account_namespaces=external-secrets \
+		policies=gophprofile-policy ttl=1h
+	$(NOECHO) $(call print_title,Putting secrets into Vault...)
+	$(NOECHO) kubectl exec vault-0 -- vault kv put secret/gophprofile \
+		database-dsn="postgres://gophprofile:secret@gophprofile-postgresql:5432/gophprofile?sslmode=disable" \
+		s3-access-key="gk_server_access_key" \
+		s3-secret-key="G0phK33p3rS3rv3r!"
+	$(NOECHO) $(call print_title,Vault setup complete!)
+
+setup-hosts: # Adds gophprofile.local to /etc/hosts (requires sudo)
+	@if grep -q "gophprofile.local" /etc/hosts; then \
+		$(ECHO) "Entry gophprofile.local already exists in /etc/hosts."; \
+	else \
+		$(ECHO) "Adding 127.0.0.1 gophprofile.local to /etc/hosts (sudo required)..."; \
+		echo "127.0.0.1 gophprofile.local" | sudo tee -a /etc/hosts; \
+	fi

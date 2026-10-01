@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gophprofile.name" . }}-worker
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    component: worker
+spec:
+  {{- if not .Values.hpa.worker.enabled }}
+  replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: {{ include "gophprofile.name" . }}-worker
+  template:
+    metadata:
+      labels:
+        app: {{ include "gophprofile.name" . }}-worker
+        component: worker
+    spec:
+      serviceAccountName: {{ include "gophprofile.name" . }}-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: health
+              containerPort: {{ .Values.worker.healthPort }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          env:
+            - name: HEALTH_ADDRESS
+              value: "0.0.0.0:{{ .Values.worker.healthPort }}"
+          envFrom:
+            - configMapRef:
+                name: {{ include "gophprofile.name" . }}-config
+            - secretRef:
+                name: {{ include "gophprofile.name" . }}-secret
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

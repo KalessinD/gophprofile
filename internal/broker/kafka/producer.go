@@ -72,3 +72,8 @@ func (p *Producer) Close() error {
 	}
 	return nil
 }
+
+// IsHealthy checks if the underlying Sarama producer is initialized.
+func (p *Producer) IsHealthy() bool {
+	return p != nil && p.producer != nil
+}

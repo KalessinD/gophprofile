@@ -13,10 +13,14 @@ WORKDIR /app
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    # creates unprivileged user (non-root) and group
+    groupadd -r appgroup && useradd -r -g appgroup -u 10001 appuser
 
-COPY --from=builder /gophprofile .
-COPY --from=builder /app/migrations ./migrations
-COPY --from=builder /app/web ./web
+COPY --chown=appuser:appgroup --from=builder /gophprofile .
+COPY --chown=appuser:appgroup --from=builder /app/migrations ./migrations
+COPY --chown=appuser:appgroup --from=builder /app/web ./web
+
+USER appuser
 
 CMD ["./gophprofile"]

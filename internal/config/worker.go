@@ -9,6 +9,10 @@ import (
 	"os"
 )
 
+const (
+	DefaultWorkerHealthAddress string = ":8081"
+)
+
 type (
 	// workerConfigJSON is used only for JSON file unmarshaling
 	workerConfigJSON struct {
@@ -27,6 +31,7 @@ type (
 
 	// Worker configuration struct
 	WorkerConfig struct {
+		HealthAddress        string
 		LoggerType           string
 		PsqlDSN              string
 		CompressionThreshold int
@@ -39,11 +44,12 @@ type (
 // GetDefaultWorkerConfig returns the default worker configuration
 func GetDefaultWorkerConfig() *WorkerConfig {
 	return &WorkerConfig{
-		LoggerType: DefaultLoggerType,
-		PsqlDSN:    DefaultPsqlDSN,
-		S3:         getDefaultS3(),
-		Kafka:      getDefaultKafka(),
-		Otel:       getDefaultOtel(),
+		HealthAddress: DefaultWorkerHealthAddress,
+		LoggerType:    DefaultLoggerType,
+		PsqlDSN:       DefaultPsqlDSN,
+		S3:            getDefaultS3(),
+		Kafka:         getDefaultKafka(),
+		Otel:          getDefaultOtel(),
 	}
 }
 
@@ -60,6 +66,7 @@ func (c *WorkerConfig) Validate() error {
 
 // UpdateFromEnvironment updates settings from ENV variables
 func (c *WorkerConfig) UpdateFromEnvironment() error {
+	c.HealthAddress = GetEnvOrFallback("HEALTH_ADDRESS", c.HealthAddress)
 	c.PsqlDSN = GetEnvOrFallback("DATABASE_DSN", c.PsqlDSN)
 	c.S3.ListenAddr = GetEnvOrFallback("S3_ENDPOINT", c.S3.ListenAddr)
 	c.S3.UseSSL = GetEnvOrFallback("S3_USE_SSL", c.S3.UseSSL)
@@ -79,6 +86,7 @@ func (c *WorkerConfig) UpdateFromEnvironment() error {
 func (c *WorkerConfig) UpdateFromCLIArgs(flagSet *flag.FlagSet, args []string) error {
 	flagSet.BoolVar(&c.S3.UseSSL, "s3-use-ssl", c.S3.UseSSL, "turns on usage of SSL for S3 connections")
 
+	flagSet.StringVar(&c.HealthAddress, "ha", c.HealthAddress, "health server listen address")
 	flagSet.StringVar(&c.PsqlDSN, "d", c.PsqlDSN, "SQL database DSN string")
 	flagSet.StringVar(&c.S3.ListenAddr, "g", c.S3.ListenAddr, "S3 listen address")
 	flagSet.StringVar(&c.S3.AccessKey, "s3-access-key", c.S3.AccessKey, "S3 access key")

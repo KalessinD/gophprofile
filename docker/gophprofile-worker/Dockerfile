@@ -13,8 +13,12 @@ WORKDIR /app
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    # creates unprivileged user (non-root) and group
+    groupadd -r appgroup && useradd -r -g appgroup -u 10001 appuser
 
-COPY --from=builder /worker .
+COPY --chown=appuser:appgroup --from=builder /worker .
+
+USER appuser
 
 CMD ["./worker"]

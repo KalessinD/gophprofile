@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "gophprofile.name" . }}-sa
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "gophprofile.name" . }}-role
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "gophprofile.name" . }}-rolebinding
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "gophprofile.name" . }}-sa
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "gophprofile.name" . }}-role
+  apiGroup: rbac.authorization.k8s.io

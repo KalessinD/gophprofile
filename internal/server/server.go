@@ -1,4 +1,4 @@
-package gophprofile
+package server
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/KalessinD/gophprofile/internal/broker/kafka"
+	"github.com/KalessinD/gophprofile/internal/circuitbreaker"
 	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
 	"github.com/KalessinD/gophprofile/internal/handlers"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/go-chi/cors"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"golang.org/x/time/rate"
 )
 
 func GetBaseRouter(cfg *config.ServerConfig, log logger.Logger) *chi.Mux {
@@ -68,9 +70,21 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log logger.Logger,
 		return nil, fmt.Errorf("initializing kafka producer: %w", err)
 	}
 
+	// Initialize Circuit Breakers for external dependencies
+	dbCB := circuitbreaker.NewCircuitBreaker(cfg.CircuitBreaker)
+	s3CB := circuitbreaker.NewCircuitBreaker(cfg.CircuitBreaker)
+	kafkaCB := circuitbreaker.NewCircuitBreaker(cfg.CircuitBreaker)
+
 	avatarRepo := postgres.NewSQLStorage(pgdb)
-	avatarService := services.NewAvatarService(avatarRepo, fileStorage, kafkaProducer, cfg.S3.Bucket, log)
-	s3URLBuilder := func(key string) string { // Builder generates HTTP URLs for S3 objects based on config
+
+	// Wrap repositories and clients with Circuit Breakers
+	cbRepo := NewCBRepository(avatarRepo, dbCB)
+	cbStorage := NewCBObjectStorage(fileStorage, s3CB)
+	cbProducer := NewCBAvatarProducer(kafkaProducer, kafkaCB)
+
+	avatarService := services.NewAvatarService(cbRepo, cbStorage, cbProducer, cfg.S3.Bucket, log)
+
+	s3URLBuilder := func(key string) string {
 		scheme := "http"
 		if cfg.S3.UseSSL {
 			scheme = "https"
@@ -85,7 +99,10 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log logger.Logger,
 		r.Group(func(r chi.Router) {
 			r.Use(mw.UserIDMiddleware)
 
-			r.Post("/avatars", avatarHandler.UploadAvatar)
+			// Apply rate limiting specifically to avatar uploads
+			limiter := rate.NewLimiter(rate.Limit(cfg.RateLimiter.RefillRate), cfg.RateLimiter.MaxTokens)
+			r.With(mw.RateLimit(limiter)).Post("/avatars", avatarHandler.UploadAvatar)
+
 			r.Delete("/avatars/{avatar_id}", avatarHandler.DeleteAvatar)
 			r.Delete("/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
 		})
@@ -98,12 +115,9 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log logger.Logger,
 	})
 
 	healthHandler := handlers.NewHealthHandler(pgdb, fileStorage, kafkaProducer)
-
-	// System routes
 	router.Get("/health", healthHandler.CheckHealth)
 
 	// Web Interface routing
-	// Serve index.html for any /web/* path to support direct URL access
 	workDir, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("getting working directory: %w", err)
@@ -119,7 +133,6 @@ func NewRouter(ctx context.Context, cfg *config.ServerConfig, log logger.Logger,
 		http.ServeFile(w, r, staticIndexPath)
 	})
 
-	// Wrap the Chi router with OTel HTTP middleware for automatic tracing of all requests
 	otelRouter := otelhttp.NewHandler(router, common.OtelHTTPName)
 
 	return otelRouter, nil

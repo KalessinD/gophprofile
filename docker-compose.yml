@@ -111,6 +111,14 @@ services:
         condition: service_completed_successfully
       kafka:
         condition: service_healthy
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     environment:
       DATABASE_DSN: postgres://gophprofile:secret@db:5432/gophprofile?sslmode=disable
       GODEBUG: netdns=go
@@ -121,13 +129,17 @@ services:
       S3_USE_SSL: "false"
       KAFKA_BROKERS: kafka:9092
       KAFKA_TOPIC: avatar-processing
+      KAFKA_GROUP_ID: gophprofile-worker-group
       OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      HEALTH_ADDRESS: ":8081" # Добавили переменную
       YP_ENV: "prod"
     networks:
       - gophprofile
-
+  
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    build:
+      context: .
+      dockerfile: ./docker/minio/Dockerfile
     container_name: gophprofile-minio
     ports:
       - "9000:9000" # API
@@ -148,7 +160,9 @@ services:
       - gophprofile
 
   minio-setup:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    build:
+      context: .
+      dockerfile: ./docker/mc/Dockerfile
     container_name: gophprofile-minio-setup
     depends_on:
       minio:

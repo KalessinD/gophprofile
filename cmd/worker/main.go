@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/KalessinD/gophprofile/internal/broker/kafka"
 	"github.com/KalessinD/gophprofile/internal/common"
 	"github.com/KalessinD/gophprofile/internal/config"
+	"github.com/KalessinD/gophprofile/internal/handlers"
 	"github.com/KalessinD/gophprofile/internal/logger"
 	"github.com/KalessinD/gophprofile/internal/metrics"
 	"github.com/KalessinD/gophprofile/internal/repositories/postgres"
@@ -40,11 +44,6 @@ func run() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	err = metrics.Init(notifyCtx)
-	if err != nil {
-		return err
-	}
-
 	appLogger, err := logger.NewLogger(cfg.LoggerType, config.IsProduction())
 	if err != nil {
 		return fmt.Errorf("failed to init logger: %w", err)
@@ -56,6 +55,11 @@ func run() error {
 		return err
 	}
 	defer otelShutdown()
+
+	err = metrics.Init(notifyCtx)
+	if err != nil {
+		return err
+	}
 
 	pgdb, err := postgres.Connect(notifyCtx, cfg.PsqlDSN)
 	if err != nil {
@@ -88,9 +92,36 @@ func run() error {
 
 	kafkaConsumer.ConsumeAvatarEvents(notifyCtx, imageProcessor.ProcessAvatar)
 
+	// Reuse server's HealthHandler, passing the Kafka Consumer as the health checker.
+	healthHandler := handlers.NewHealthHandler(pgdb, s3Client, kafkaConsumer)
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/health", healthHandler.CheckHealth)
+
+	healthServer := &http.Server{
+		Addr:              cfg.HealthAddress,
+		Handler:           healthMux,
+		ReadHeaderTimeout: config.DefaultReadHeaderTimeout,
+		ReadTimeout:       config.DefaultReadTimeout,
+		WriteTimeout:      config.DefaultWriteTimeout,
+	}
+
+	go func() {
+		appLogger.Info("Starting health server on " + cfg.HealthAddress)
+		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			appLogger.Error("Health server failed", "error", err)
+		}
+	}()
+
 	// Block until shutdown signal is received
 	<-notifyCtx.Done()
 	appLogger.Info("Shutdown signal received, stopping worker...")
+
+	// Graceful shutdown of health server
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := healthServer.Shutdown(shutdownCtx); err != nil {
+		appLogger.Error("Failed to shutdown health server gracefully", "error", err)
+	}
 
 	if err := kafkaConsumer.Close(); err != nil {
 		appLogger.Error("Failed to close kafka consumer gracefully", "error", err)

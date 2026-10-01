@@ -16,6 +16,11 @@ const (
 )
 
 type (
+	// KafkaHealthChecker defines the contract for checking Kafka client health.
+	KafkaHealthChecker interface {
+		IsHealthy() bool
+	}
+
 	// HealthResponse represents the JSON structure for the health check endpoint.
 	HealthResponse struct {
 		Status     string            `json:"status"`
@@ -24,18 +29,18 @@ type (
 
 	// HealthHandler handles health check requests.
 	HealthHandler struct {
-		db       *sql.DB
-		s3       services.ObjectStorage
-		producer services.AvatarProducer
+		db    *sql.DB
+		s3    services.ObjectStorage
+		kafka KafkaHealthChecker
 	}
 )
 
 // NewHealthHandler creates a new instance of HealthHandler.
-func NewHealthHandler(db *sql.DB, s3 services.ObjectStorage, producer services.AvatarProducer) *HealthHandler {
+func NewHealthHandler(db *sql.DB, s3 services.ObjectStorage, kafka KafkaHealthChecker) *HealthHandler {
 	return &HealthHandler{
-		db:       db,
-		s3:       s3,
-		producer: producer,
+		db:    db,
+		s3:    s3,
+		kafka: kafka,
 	}
 }
 
@@ -69,8 +74,8 @@ func (h *HealthHandler) CheckHealth(w http.ResponseWriter, r *http.Request) {
 		response.Components["s3"] = "ok"
 	}
 
-	// Check Kafka Producer
-	if h.producer == nil {
+	// Check Kafka Client (Producer or Consumer)
+	if h.kafka == nil || !h.kafka.IsHealthy() {
 		response.Status = statusError
 		response.Components["kafka"] = statusNotInitialized
 	} else {
@@ -86,7 +91,6 @@ func (h *HealthHandler) CheckHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		// Log error in real implementation
 		return
 	}
 }

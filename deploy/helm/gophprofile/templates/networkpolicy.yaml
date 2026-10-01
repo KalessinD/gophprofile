@@ -1,0 +1,99 @@
+{{- if .Values.networkPolicy.enabled }}
+# 1. Deny All Ingress & Egress for Server and Worker by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gophprofile.name" . }}-deny-all
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - {{ include "gophprofile.name" . }}-server
+          - {{ include "gophprofile.name" . }}-worker
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# Allow incoming traffic to the Server only from Ingress Controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gophprofile.name" . }}-server-allow-ingress
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ include "gophprofile.name" . }}-server
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+# 3. Allow for Server and Worker outgoing requests to DNS (kube-dns at kube-system)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gophprofile.name" . }}-allow-dns
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - {{ include "gophprofile.name" . }}-server
+          - {{ include "gophprofile.name" . }}-worker
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+# 4. Allow Server and Worker outgoing traffic to internal infrastructure (PG, Kafka, S3, OTel)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gophprofile.name" . }}-allow-infra-egress
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - {{ include "gophprofile.name" . }}-server
+          - {{ include "gophprofile.name" . }}-worker
+  policyTypes:
+  - Egress
+  egress:
+  # Allow traffic to all pods in the current namespace by certain ports
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 5432 # PostgreSQL
+    - protocol: TCP
+      port: 9092 # Kafka
+    - protocol: TCP
+      port: 9000 # MinIO / S3
+    - protocol: TCP
+      port: 4317 # OTel Collector
+{{- end }}
